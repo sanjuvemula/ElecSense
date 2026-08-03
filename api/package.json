@@ -10,13 +10,15 @@
     "format": "prettier --write .",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "node src/db/seed/index.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.44.0",
     "express": "^5.1.0",
-    "postgres": "^3.4.7"
+    "postgres": "^3.4.7",
+    "seedrandom": "^3.0.5"
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.0",
