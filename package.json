@@ -1,0 +1,15 @@
+{
+  "name": "elecsense",
+  "version": "0.1.0",
+  "private": true,
+  "_comment": "Using npm workspaces keeps this two-app scaffold simple: one install, root scripts, and app-local package.json files.",
+  "workspaces": [
+    "api",
+    "web"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w api",
+    "dev:web": "npm run dev -w web",
+    "lint": "npm run lint -w api && npm run lint -w web"
+  }
+}
