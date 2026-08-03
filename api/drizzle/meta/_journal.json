@@ -15,6 +15,13 @@
       "when": 1785779170196,
       "tag": "0001_sudden_valkyrie",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785780395701,
+      "tag": "0002_easy_goblin_queen",
+      "breakpoints": true
     }
   ]
 }

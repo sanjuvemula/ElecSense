@@ -55,6 +55,7 @@ export const poles = pgTable(
     parentPoleId: text('parent_pole_id'),
     inferredParentId: text('inferred_parent_id'),
     inferredSeq: integer('inferred_seq'),
+    topologyConfidence: numeric('topology_confidence', confidenceValue),
     pincode: text('pincode'),
     deviceId: text('device_id').unique('poles_device_id_unique'),
     lastState: text('last_state', {

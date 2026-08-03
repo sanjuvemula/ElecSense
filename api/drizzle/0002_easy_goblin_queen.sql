@@ -1,0 +1,1 @@
+ALTER TABLE "poles" ADD COLUMN "topology_confidence" numeric(5, 4);
