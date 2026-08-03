@@ -8,6 +8,13 @@
       "when": 1785778150527,
       "tag": "0000_foamy_the_twelve",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785779170196,
+      "tag": "0001_sudden_valkyrie",
+      "breakpoints": true
     }
   ]
 }

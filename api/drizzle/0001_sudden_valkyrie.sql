@@ -1,0 +1,1 @@
+ALTER TABLE "devices" ADD COLUMN "last_seq" integer DEFAULT 0 NOT NULL;

@@ -6,19 +6,22 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
+    "test": "node --test",
     "lint": "eslint .",
     "format": "prettier --write .",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "node src/db/seed/index.js"
+    "db:seed": "node src/db/seed/index.js",
+    "loadtest": "node scripts/loadtest.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.44.0",
     "express": "^5.1.0",
     "postgres": "^3.4.7",
-    "seedrandom": "^3.0.5"
+    "seedrandom": "^3.0.5",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.0",

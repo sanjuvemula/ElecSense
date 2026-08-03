@@ -98,6 +98,7 @@ export const devices = pgTable(
     batteryMv: integer('battery_mv').notNull(),
     rssi: integer('rssi').notNull(),
     lastBootAt: timestampTz('last_boot_at'),
+    lastSeq: integer('last_seq').notNull().default(0),
   },
   (table) => [index('devices_pole_id_idx').on(table.poleId)],
 );
