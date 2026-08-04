@@ -17,12 +17,16 @@ export async function localizeFaultsForDt(dtId, options = {}) {
     throw error;
   }
 
-  const [dt, tree, poleStates, outageRows] = await Promise.all([
+  const [dt, tree, rawPoleStates, outageRows] = await Promise.all([
     fetchDt(database, dtId),
     inferTopology(dtId, { db: database }),
     fetchPoleStatesForDt(database, dtId),
     fetchScheduledOutages(database),
   ]);
+  const poleStates = applyConfirmedDarkFilter(
+    rawPoleStates,
+    options.confirmedDarkPoleIds,
+  );
 
   return localizeFaultsForDtSnapshot({
     dt,
@@ -431,6 +435,25 @@ function getEffectivePoleState(pole, now, options) {
     reason: 'stale_or_ambiguous',
     telemetryAgeMs,
   };
+}
+
+function applyConfirmedDarkFilter(poleRows, confirmedDarkPoleIds) {
+  if (!confirmedDarkPoleIds) {
+    return poleRows;
+  }
+
+  const confirmed = new Set(confirmedDarkPoleIds);
+
+  return poleRows.map((pole) => {
+    if (pole.lastState !== 'dark' || confirmed.has(pole.poleId)) {
+      return pole;
+    }
+
+    return {
+      ...pole,
+      lastState: 'live',
+    };
+  });
 }
 
 function createSpanIncident(context, boundaryNode, lastKnownLivePoleId) {
