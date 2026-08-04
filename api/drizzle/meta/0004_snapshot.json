@@ -1,0 +1,1219 @@
+{
+  "id": "c10f5990-12a6-4678-aca6-c007ee08bbb8",
+  "prevId": "470009b9-a5ff-44d7-b60e-3fc50b7dda2a",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.devices": {
+      "name": "devices",
+      "schema": "",
+      "columns": {
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "pole_id": {
+          "name": "pole_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fw_version": {
+          "name": "fw_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "battery_mv": {
+          "name": "battery_mv",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rssi": {
+          "name": "rssi",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_boot_at": {
+          "name": "last_boot_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_seq": {
+          "name": "last_seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "devices_pole_id_idx": {
+          "name": "devices_pole_id_idx",
+          "columns": [
+            {
+              "expression": "pole_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "devices_pole_id_poles_pole_id_fk": {
+          "name": "devices_pole_id_poles_pole_id_fk",
+          "tableFrom": "devices",
+          "tableTo": "poles",
+          "columnsFrom": [
+            "pole_id"
+          ],
+          "columnsTo": [
+            "pole_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.dts": {
+      "name": "dts",
+      "schema": "",
+      "columns": {
+        "dt_id": {
+          "name": "dt_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "feeder_id": {
+          "name": "feeder_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lat": {
+          "name": "lat",
+          "type": "numeric(10, 7)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lon": {
+          "name": "lon",
+          "type": "numeric(10, 7)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "capacity_kva": {
+          "name": "capacity_kva",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "households_served": {
+          "name": "households_served",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "dts_feeder_id_idx": {
+          "name": "dts_feeder_id_idx",
+          "columns": [
+            {
+              "expression": "feeder_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "dts_feeder_id_feeders_feeder_id_fk": {
+          "name": "dts_feeder_id_feeders_feeder_id_fk",
+          "tableFrom": "dts",
+          "tableTo": "feeders",
+          "columnsFrom": [
+            "feeder_id"
+          ],
+          "columnsTo": [
+            "feeder_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.feeders": {
+      "name": "feeders",
+      "schema": "",
+      "columns": {
+        "feeder_id": {
+          "name": "feeder_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.incident_events": {
+      "name": "incident_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "incident_id": {
+          "name": "incident_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "incident_events_incident_id_created_at_idx": {
+          "name": "incident_events_incident_id_created_at_idx",
+          "columns": [
+            {
+              "expression": "incident_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "incident_events_incident_id_incidents_id_fk": {
+          "name": "incident_events_incident_id_incidents_id_fk",
+          "tableFrom": "incident_events",
+          "tableTo": "incidents",
+          "columnsFrom": [
+            "incident_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.incident_poles": {
+      "name": "incident_poles",
+      "schema": "",
+      "columns": {
+        "incident_id": {
+          "name": "incident_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pole_id": {
+          "name": "pole_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "incident_poles_pole_id_idx": {
+          "name": "incident_poles_pole_id_idx",
+          "columns": [
+            {
+              "expression": "pole_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "incident_poles_pole_id_poles_pole_id_fk": {
+          "name": "incident_poles_pole_id_poles_pole_id_fk",
+          "tableFrom": "incident_poles",
+          "tableTo": "poles",
+          "columnsFrom": [
+            "pole_id"
+          ],
+          "columnsTo": [
+            "pole_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "incident_poles_incident_id_fk": {
+          "name": "incident_poles_incident_id_fk",
+          "tableFrom": "incident_poles",
+          "tableTo": "incidents",
+          "columnsFrom": [
+            "incident_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "incident_poles_pk": {
+          "name": "incident_poles_pk",
+          "columns": [
+            "incident_id",
+            "pole_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.incidents": {
+      "name": "incidents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dt_id": {
+          "name": "dt_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "feeder_id": {
+          "name": "feeder_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "boundary_pole_id": {
+          "name": "boundary_pole_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "boundary_parent_id": {
+          "name": "boundary_parent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lat": {
+          "name": "lat",
+          "type": "numeric(10, 7)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lon": {
+          "name": "lon",
+          "type": "numeric(10, 7)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pincode": {
+          "name": "pincode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "affected_pole_count": {
+          "name": "affected_pole_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "confidence": {
+          "name": "confidence",
+          "type": "numeric(5, 4)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "confidence_reason": {
+          "name": "confidence_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "topology_source": {
+          "name": "topology_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dispatch_note": {
+          "name": "dispatch_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dispatch_note_source": {
+          "name": "dispatch_note_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dispatch_note_fingerprint": {
+          "name": "dispatch_note_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'detected'"
+        },
+        "detected_at": {
+          "name": "detected_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "acknowledged_at": {
+          "name": "acknowledged_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "crew_assigned_at": {
+          "name": "crew_assigned_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "verified_at": {
+          "name": "verified_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "closed_at": {
+          "name": "closed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "incidents_dt_id_idx": {
+          "name": "incidents_dt_id_idx",
+          "columns": [
+            {
+              "expression": "dt_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "incidents_feeder_id_idx": {
+          "name": "incidents_feeder_id_idx",
+          "columns": [
+            {
+              "expression": "feeder_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "incidents_boundary_pole_id_idx": {
+          "name": "incidents_boundary_pole_id_idx",
+          "columns": [
+            {
+              "expression": "boundary_pole_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "incidents_boundary_parent_id_idx": {
+          "name": "incidents_boundary_parent_id_idx",
+          "columns": [
+            {
+              "expression": "boundary_parent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "incidents_status_idx": {
+          "name": "incidents_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "incidents_detected_at_idx": {
+          "name": "incidents_detected_at_idx",
+          "columns": [
+            {
+              "expression": "detected_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "incidents_pincode_idx": {
+          "name": "incidents_pincode_idx",
+          "columns": [
+            {
+              "expression": "pincode",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "incidents_dt_id_dts_dt_id_fk": {
+          "name": "incidents_dt_id_dts_dt_id_fk",
+          "tableFrom": "incidents",
+          "tableTo": "dts",
+          "columnsFrom": [
+            "dt_id"
+          ],
+          "columnsTo": [
+            "dt_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "incidents_feeder_id_feeders_feeder_id_fk": {
+          "name": "incidents_feeder_id_feeders_feeder_id_fk",
+          "tableFrom": "incidents",
+          "tableTo": "feeders",
+          "columnsFrom": [
+            "feeder_id"
+          ],
+          "columnsTo": [
+            "feeder_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "incidents_boundary_pole_id_poles_pole_id_fk": {
+          "name": "incidents_boundary_pole_id_poles_pole_id_fk",
+          "tableFrom": "incidents",
+          "tableTo": "poles",
+          "columnsFrom": [
+            "boundary_pole_id"
+          ],
+          "columnsTo": [
+            "pole_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "incidents_boundary_parent_id_poles_pole_id_fk": {
+          "name": "incidents_boundary_parent_id_poles_pole_id_fk",
+          "tableFrom": "incidents",
+          "tableTo": "poles",
+          "columnsFrom": [
+            "boundary_parent_id"
+          ],
+          "columnsTo": [
+            "pole_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "incidents_type_check": {
+          "name": "incidents_type_check",
+          "value": "\"incidents\".\"type\" in ('span', 'dt', 'feeder', 'sensor_fault')"
+        },
+        "incidents_confidence_check": {
+          "name": "incidents_confidence_check",
+          "value": "\"incidents\".\"confidence\" >= 0 and \"incidents\".\"confidence\" <= 1"
+        },
+        "incidents_topology_source_check": {
+          "name": "incidents_topology_source_check",
+          "value": "\"incidents\".\"topology_source\" in ('surveyed', 'inferred', 'unknown')"
+        },
+        "incidents_dispatch_note_source_check": {
+          "name": "incidents_dispatch_note_source_check",
+          "value": "\"incidents\".\"dispatch_note_source\" in ('llm', 'template-fallback')"
+        },
+        "incidents_status_check": {
+          "name": "incidents_status_check",
+          "value": "\"incidents\".\"status\" in ('detected', 'acknowledged', 'crew_assigned', 'resolved', 'verified', 'closed')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.poles": {
+      "name": "poles",
+      "schema": "",
+      "columns": {
+        "pole_id": {
+          "name": "pole_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "lat": {
+          "name": "lat",
+          "type": "numeric(10, 7)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lon": {
+          "name": "lon",
+          "type": "numeric(10, 7)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "feeder_id": {
+          "name": "feeder_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dt_id": {
+          "name": "dt_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seq_on_line": {
+          "name": "seq_on_line",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "parent_pole_id": {
+          "name": "parent_pole_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "inferred_parent_id": {
+          "name": "inferred_parent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "inferred_seq": {
+          "name": "inferred_seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "topology_confidence": {
+          "name": "topology_confidence",
+          "type": "numeric(5, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pincode": {
+          "name": "pincode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_state": {
+          "name": "last_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unknown'"
+        },
+        "last_seen_ts": {
+          "name": "last_seen_ts",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_seq": {
+          "name": "last_seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "poles_feeder_id_idx": {
+          "name": "poles_feeder_id_idx",
+          "columns": [
+            {
+              "expression": "feeder_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "poles_dt_id_idx": {
+          "name": "poles_dt_id_idx",
+          "columns": [
+            {
+              "expression": "dt_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "poles_parent_pole_id_idx": {
+          "name": "poles_parent_pole_id_idx",
+          "columns": [
+            {
+              "expression": "parent_pole_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "poles_inferred_parent_id_idx": {
+          "name": "poles_inferred_parent_id_idx",
+          "columns": [
+            {
+              "expression": "inferred_parent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "poles_pincode_idx": {
+          "name": "poles_pincode_idx",
+          "columns": [
+            {
+              "expression": "pincode",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "poles_last_state_idx": {
+          "name": "poles_last_state_idx",
+          "columns": [
+            {
+              "expression": "last_state",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "poles_feeder_id_feeders_feeder_id_fk": {
+          "name": "poles_feeder_id_feeders_feeder_id_fk",
+          "tableFrom": "poles",
+          "tableTo": "feeders",
+          "columnsFrom": [
+            "feeder_id"
+          ],
+          "columnsTo": [
+            "feeder_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "poles_dt_id_dts_dt_id_fk": {
+          "name": "poles_dt_id_dts_dt_id_fk",
+          "tableFrom": "poles",
+          "tableTo": "dts",
+          "columnsFrom": [
+            "dt_id"
+          ],
+          "columnsTo": [
+            "dt_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "poles_parent_pole_id_fk": {
+          "name": "poles_parent_pole_id_fk",
+          "tableFrom": "poles",
+          "tableTo": "poles",
+          "columnsFrom": [
+            "parent_pole_id"
+          ],
+          "columnsTo": [
+            "pole_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "poles_inferred_parent_id_fk": {
+          "name": "poles_inferred_parent_id_fk",
+          "tableFrom": "poles",
+          "tableTo": "poles",
+          "columnsFrom": [
+            "inferred_parent_id"
+          ],
+          "columnsTo": [
+            "pole_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "poles_device_id_unique": {
+          "name": "poles_device_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "device_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "poles_last_state_check": {
+          "name": "poles_last_state_check",
+          "value": "\"poles\".\"last_state\" in ('live', 'dark', 'unknown')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.scheduled_outages": {
+      "name": "scheduled_outages",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_id": {
+          "name": "target_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_cancelled": {
+          "name": "is_cancelled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        }
+      },
+      "indexes": {
+        "scheduled_outages_scope_target_id_idx": {
+          "name": "scheduled_outages_scope_target_id_idx",
+          "columns": [
+            {
+              "expression": "scope",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "target_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "scheduled_outages_starts_at_ends_at_idx": {
+          "name": "scheduled_outages_starts_at_ends_at_idx",
+          "columns": [
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ends_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "scheduled_outages_scope_check": {
+          "name": "scheduled_outages_scope_check",
+          "value": "\"scheduled_outages\".\"scope\" in ('feeder', 'dt')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.telemetry_events": {
+      "name": "telemetry_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pole_id": {
+          "name": "pole_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event": {
+          "name": "event",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "energized": {
+          "name": "energized",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "device_ts": {
+          "name": "device_ts",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "device_ts_second": {
+          "name": "device_ts_second",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seq": {
+          "name": "seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "battery_mv": {
+          "name": "battery_mv",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rssi": {
+          "name": "rssi",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "telemetry_events_device_id_seq_idx": {
+          "name": "telemetry_events_device_id_seq_idx",
+          "columns": [
+            {
+              "expression": "device_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "seq",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "telemetry_events_device_seq_ts_second_unique": {
+          "name": "telemetry_events_device_seq_ts_second_unique",
+          "columns": [
+            {
+              "expression": "device_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "seq",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "device_ts_second",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "telemetry_events_pole_id_device_ts_idx": {
+          "name": "telemetry_events_pole_id_device_ts_idx",
+          "columns": [
+            {
+              "expression": "pole_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "device_ts",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "telemetry_events_event_check": {
+          "name": "telemetry_events_event_check",
+          "value": "\"telemetry_events\".\"event\" in ('heartbeat', 'power_lost', 'power_restored', 'boot')"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

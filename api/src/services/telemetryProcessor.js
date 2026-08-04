@@ -19,6 +19,7 @@ export function processTelemetryEvent(event, deviceState = null) {
     event: event.event,
     energized: event.energized,
     deviceTs: event.deviceTs,
+    deviceTsSecond: truncateToSecond(event.deviceTs),
     seq: event.seq,
     batteryMv: event.batteryMv,
     rssi: event.rssi,
@@ -62,4 +63,10 @@ export function processTelemetryEvent(event, deviceState = null) {
       isBoot,
     },
   };
+}
+
+function truncateToSecond(value) {
+  const date = value instanceof Date ? value : new Date(value);
+
+  return new Date(Math.floor(date.getTime() / 1000) * 1000);
 }

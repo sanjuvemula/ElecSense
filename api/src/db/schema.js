@@ -12,6 +12,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -115,6 +116,7 @@ export const telemetryEvents = pgTable(
     }).notNull(),
     energized: boolean('energized').notNull(),
     deviceTs: timestampTz('device_ts').notNull(),
+    deviceTsSecond: timestampTz('device_ts_second').notNull(),
     seq: integer('seq').notNull(),
     batteryMv: integer('battery_mv'),
     rssi: integer('rssi'),
@@ -122,6 +124,15 @@ export const telemetryEvents = pgTable(
   },
   (table) => [
     index('telemetry_events_device_id_seq_idx').on(table.deviceId, table.seq),
+    // Device sequence numbers reset after boot, but duplicate MQTT/HTTP retries
+    // should carry the same device timestamp. Until we model boot generations
+    // explicitly, this stored second-bucket event identity rejects true duplicate
+    // retries while still allowing legitimate sequence reuse in a new lifetime.
+    uniqueIndex('telemetry_events_device_seq_ts_second_unique').on(
+      table.deviceId,
+      table.seq,
+      table.deviceTsSecond,
+    ),
     index('telemetry_events_pole_id_device_ts_idx').on(
       table.poleId,
       table.deviceTs,

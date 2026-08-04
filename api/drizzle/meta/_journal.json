@@ -29,6 +29,13 @@
       "when": 1785862722982,
       "tag": "0003_early_goliath",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785869598642,
+      "tag": "0004_clear_jocasta",
+      "breakpoints": true
     }
   ]
 }

@@ -48,20 +48,28 @@ export async function ingestTelemetryEvents(db, events) {
   const telemetryRows = events.map(
     (event) => processTelemetryEvent(event).telemetryRow,
   );
+  const insertedKeys = await insertTelemetryRows(db, telemetryRows);
+  const storedEvents = filterEventsByInsertedKeys(events, insertedKeys);
 
-  await insertRows(db, telemetryEvents, telemetryRows);
+  if (storedEvents.length === 0) {
+    return {
+      stored: 0,
+      accepted: 0,
+      ignored: events.length,
+    };
+  }
 
   const [deviceStates, knownPoleIds] = await Promise.all([
     loadDeviceStates(
       db,
-      events.map((event) => event.deviceId),
+      storedEvents.map((event) => event.deviceId),
     ),
     loadKnownPoleIds(
       db,
-      events.map((event) => event.poleId),
+      storedEvents.map((event) => event.poleId),
     ),
   ]);
-  const decisions = buildTelemetryDecisions(events, deviceStates);
+  const decisions = buildTelemetryDecisions(storedEvents, deviceStates);
   const acceptedDecisions = decisions.filter((decision) => decision.accepted);
 
   if (acceptedDecisions.length > 0) {
@@ -69,9 +77,9 @@ export async function ingestTelemetryEvents(db, events) {
   }
 
   return {
-    stored: telemetryRows.length,
+    stored: storedEvents.length,
     accepted: acceptedDecisions.length,
-    ignored: decisions.length - acceptedDecisions.length,
+    ignored: events.length - acceptedDecisions.length,
   };
 }
 
@@ -270,10 +278,34 @@ async function updatePoleStates(db, updates) {
   }
 }
 
-async function insertRows(db, table, rows) {
+async function insertTelemetryRows(db, rows) {
+  const insertedKeys = [];
+
   for (const chunk of chunks(rows, INSERT_CHUNK_SIZE)) {
-    await db.insert(table).values(chunk);
+    const inserted = await db
+      .insert(telemetryEvents)
+      .values(chunk)
+      .onConflictDoNothing({
+        target: [
+          telemetryEvents.deviceId,
+          telemetryEvents.seq,
+          telemetryEvents.deviceTsSecond,
+        ],
+      })
+      .returning({
+        deviceId: telemetryEvents.deviceId,
+        seq: telemetryEvents.seq,
+        deviceTsSecond: telemetryEvents.deviceTsSecond,
+      });
+
+    insertedKeys.push(
+      ...inserted.map((row) =>
+        telemetryDedupKey(row.deviceId, row.seq, row.deviceTsSecond),
+      ),
+    );
   }
+
+  return insertedKeys;
 }
 
 function toDeviceInsertRow(update) {
@@ -300,4 +332,43 @@ function chunks(values, size) {
 
 function unique(values) {
   return Array.from(new Set(values));
+}
+
+function filterEventsByInsertedKeys(events, insertedKeys) {
+  const remainingByKey = new Map();
+
+  for (const key of insertedKeys) {
+    remainingByKey.set(key, (remainingByKey.get(key) ?? 0) + 1);
+  }
+
+  return events.filter((event) => {
+    const key = telemetryDedupKey(
+      event.deviceId,
+      event.seq,
+      truncateToSecond(event.deviceTs),
+    );
+    const remaining = remainingByKey.get(key) ?? 0;
+
+    if (remaining === 0) {
+      return false;
+    }
+
+    remainingByKey.set(key, remaining - 1);
+
+    return true;
+  });
+}
+
+function telemetryDedupKey(deviceId, seq, deviceTsSecond) {
+  return `${deviceId}|${seq}|${normalizeDate(deviceTsSecond).toISOString()}`;
+}
+
+function truncateToSecond(value) {
+  const date = normalizeDate(value);
+
+  return new Date(Math.floor(date.getTime() / 1000) * 1000);
+}
+
+function normalizeDate(value) {
+  return value instanceof Date ? value : new Date(value);
 }
