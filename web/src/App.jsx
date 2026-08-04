@@ -1,85 +1,1389 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { usePolling } from './hooks/usePolling.js';
+
+const STATUS_META = {
+  detected: {
+    label: 'Detected',
+    priority: 0,
+    tone: 'detected',
+    actionLabel: 'Acknowledge',
+    actionPath: 'acknowledge',
+  },
+  acknowledged: {
+    label: 'Acknowledged',
+    priority: 1,
+    tone: 'acknowledged',
+    actionLabel: 'Assign Crew',
+    actionPath: 'assign-crew',
+  },
+  crew_assigned: {
+    label: 'Crew Assigned',
+    priority: 2,
+    tone: 'crew-assigned',
+    actionLabel: 'Mark Resolved',
+    actionPath: 'mark-resolved',
+  },
+  resolved: {
+    label: 'Resolved',
+    priority: 3,
+    tone: 'resolved',
+  },
+  verified: {
+    label: 'Verified',
+    priority: 4,
+    tone: 'verified',
+    actionLabel: 'Close Incident',
+    actionPath: 'close',
+  },
+  closed: {
+    label: 'Closed',
+    priority: 5,
+    tone: 'closed',
+  },
+};
+
+const INCIDENT_TYPE_LABELS = {
+  span: 'Span Fault',
+  dt: 'DT Outage',
+  feeder: 'Feeder Outage',
+  sensor_fault: 'Sensor Fault',
+};
+
+const API_HEADERS = {
+  'Content-Type': 'application/json',
+};
 
 export default function App() {
-  const [health, setHealth] = useState({
-    data: null,
-    error: null,
-    loading: true,
-  });
+  const [theme, setTheme] = useState('dark');
+  const [selectedIncidentId, setSelectedIncidentId] = useState(null);
+  const [selectedDtId, setSelectedDtId] = useState(null);
+  const [selectedFeederId, setSelectedFeederId] = useState(null);
+  const [selectedPoleId, setSelectedPoleId] = useState(null);
+  const [incidentDetails, setIncidentDetails] = useState(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(null);
+  const [actionNotice, setActionNotice] = useState(null);
+  const [crewNote, setCrewNote] = useState('');
+  const [resolutionNote, setResolutionNote] = useState('');
+  const [simulatorLoading, setSimulatorLoading] = useState(null);
+  const [simulatorResult, setSimulatorResult] = useState(null);
+
+  const incidentsPoll = usePolling(
+    async () => {
+      const payload = await fetchJson('/api/incidents');
+
+      return payload.incidents ?? [];
+    },
+    4000,
+    [],
+  );
+  const networkPoll = usePolling(
+    () => fetchJson('/api/simulator/network'),
+    5000,
+    [],
+  );
+
+  const incidents = useMemo(
+    () => sortIncidents(incidentsPoll.data ?? []),
+    [incidentsPoll.data],
+  );
+  const network = networkPoll.data;
+  const activeIncidents = useMemo(
+    () => incidents.filter((incident) => incident.status !== 'closed'),
+    [incidents],
+  );
+  const selectedIncident =
+    incidents.find((incident) => incident.id === selectedIncidentId) ??
+    activeIncidents[0] ??
+    incidents[0] ??
+    null;
+  const selectedDetailIncident = incidentDetails?.incident ?? selectedIncident;
+  const selectedIncidentPoles = incidentDetails?.incidentPoles ?? [];
+  const networkStats = useMemo(() => buildNetworkStats(network), [network]);
+
+  useEffect(() => {
+    if (!selectedIncidentId && selectedIncident) {
+      setSelectedIncidentId(selectedIncident.id);
+    }
+  }, [selectedIncident, selectedIncidentId]);
+
+  useEffect(() => {
+    if (!network) {
+      return;
+    }
+
+    if (!selectedFeederId && network.feeders?.[0]) {
+      setSelectedFeederId(network.feeders[0].feederId);
+    }
+
+    if (!selectedDtId && network.dts?.[0]) {
+      setSelectedDtId(network.dts[0].dtId);
+    }
+  }, [network, selectedDtId, selectedFeederId]);
+
+  useEffect(() => {
+    if (!network || !selectedDtId) {
+      return;
+    }
+
+    const dtPoles = getPolesForDt(network, selectedDtId);
+
+    if (
+      dtPoles.length > 0 &&
+      !dtPoles.some((pole) => pole.poleId === selectedPoleId)
+    ) {
+      setSelectedPoleId(dtPoles[0].poleId);
+    }
+  }, [network, selectedDtId, selectedPoleId]);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadHealth() {
+    async function loadDetails() {
+      if (!selectedIncidentId) {
+        setIncidentDetails(null);
+        return;
+      }
+
+      setDetailsLoading(true);
+
       try {
-        const response = await fetch('/health');
-
-        if (!response.ok) {
-          throw new Error(`Health check failed with ${response.status}`);
-        }
-
-        const data = await response.json();
+        const payload = await fetchJson(`/api/incidents/${selectedIncidentId}`);
 
         if (!cancelled) {
-          setHealth({ data, error: null, loading: false });
+          setIncidentDetails(payload);
+          setActionNotice(null);
         }
       } catch (error) {
         if (!cancelled) {
-          setHealth({ data: null, error: error.message, loading: false });
+          setIncidentDetails(null);
+          setActionNotice({
+            tone: 'danger',
+            message: error.message,
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setDetailsLoading(false);
         }
       }
     }
 
-    loadHealth();
+    loadDetails();
 
     return () => {
       cancelled = true;
     };
+  }, [selectedIncidentId, incidentsPoll.updatedAt]);
+
+  async function refreshConsole() {
+    await Promise.all([incidentsPoll.refetch(), networkPoll.refetch()]);
+
+    if (selectedIncidentId) {
+      const payload = await fetchJson(`/api/incidents/${selectedIncidentId}`);
+      setIncidentDetails(payload);
+    }
+  }
+
+  async function runWorkflowAction(actionPath) {
+    if (!selectedDetailIncident) {
+      return;
+    }
+
+    const payload =
+      actionPath === 'assign-crew'
+        ? { crewNote: crewNote.trim() }
+        : actionPath === 'mark-resolved'
+          ? { note: resolutionNote.trim() }
+          : {};
+
+    setActionLoading(actionPath);
+    setActionNotice(null);
+
+    try {
+      const result = await fetchJson(
+        `/api/incidents/${selectedDetailIncident.id}/${actionPath}`,
+        {
+          method: 'POST',
+          body: payload,
+        },
+      );
+
+      setIncidentDetails((current) => ({
+        ...(current ?? {}),
+        incident: result.incident,
+      }));
+      setActionNotice(formatWorkflowNotice(actionPath, result));
+      setCrewNote('');
+      setResolutionNote('');
+      await refreshConsole();
+    } catch (error) {
+      setActionNotice({
+        tone: 'danger',
+        message: error.message,
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function runSimulatorAction(kind) {
+    const request = buildSimulatorRequest({
+      kind,
+      selectedDtId,
+      selectedFeederId,
+      selectedPoleId,
+      selectedIncidentId: selectedDetailIncident?.id ?? selectedIncidentId,
+    });
+
+    if (!request) {
+      return;
+    }
+
+    setSimulatorLoading(kind);
+    setSimulatorResult(null);
+
+    try {
+      const result = await fetchJson(request.path, {
+        method: 'POST',
+        body: request.body,
+      });
+
+      setSimulatorResult({
+        tone: 'success',
+        title: request.label,
+        result,
+      });
+      await refreshConsole();
+    } catch (error) {
+      setSimulatorResult({
+        tone: 'danger',
+        title: request.label,
+        message: error.message,
+      });
+    } finally {
+      setSimulatorLoading(null);
+    }
+  }
+
+  const handleMapPoleSelect = useCallback(({ poleId, dtId, feederId }) => {
+    setSelectedPoleId(poleId);
+    setSelectedDtId(dtId);
+    setSelectedFeederId(feederId);
   }, []);
 
-  const statusLabel = health.loading
-    ? 'Checking'
-    : health.error
-      ? 'Unavailable'
-      : health.data?.status;
-
   return (
-    <main className="min-h-screen bg-zinc-50 px-6 py-10 text-zinc-950">
-      <section className="mx-auto flex max-w-3xl flex-col gap-6">
-        <div>
-          <p className="text-sm font-medium uppercase tracking-wide text-emerald-700">
-            Distribution board monitoring
-          </p>
-          <h1 className="mt-3 text-3xl font-semibold">ElecSense</h1>
-        </div>
+    <main className={`app ${theme}`}>
+      <AmbientLighting />
 
-        <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm text-zinc-500">API health</p>
-              <p className="mt-1 text-xl font-semibold capitalize">
-                {statusLabel}
-              </p>
-            </div>
-            <span
-              className={[
-                'h-3 w-3 rounded-full',
-                health.loading
-                  ? 'bg-amber-400'
-                  : health.error
-                    ? 'bg-red-500'
-                    : 'bg-emerald-500',
-              ].join(' ')}
-            />
-          </div>
+      <TopNavigation
+        theme={theme}
+        onToggleTheme={() =>
+          setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
+        }
+        activeIncidentCount={activeIncidents.length}
+        liveDeviceCount={networkStats.liveDevices}
+        totalDeviceCount={networkStats.totalDevices}
+        lastTelemetryAt={networkStats.lastTelemetryAt}
+        incidentsLoading={incidentsPoll.loading}
+        networkLoading={networkPoll.loading}
+      />
 
-          <pre className="mt-5 overflow-auto rounded-md bg-zinc-950 p-4 text-sm text-zinc-50">
-            {health.loading
-              ? 'Loading /health...'
-              : JSON.stringify(health.error ?? health.data, null, 2)}
-          </pre>
-        </div>
+      <section className="workspace">
+        <OperationsMap
+          network={network}
+          incidents={activeIncidents}
+          selectedIncident={selectedDetailIncident}
+          selectedIncidentPoles={selectedIncidentPoles}
+          selectedPoleId={selectedPoleId}
+          onSelectIncident={setSelectedIncidentId}
+          onSelectPole={handleMapPoleSelect}
+        />
+
+        <IncidentRail
+          incidents={activeIncidents}
+          selectedIncidentId={selectedDetailIncident?.id}
+          loading={incidentsPoll.loading}
+          error={incidentsPoll.error}
+          onSelectIncident={setSelectedIncidentId}
+        />
+
+        <IncidentDetailPanel
+          incident={selectedDetailIncident}
+          incidentPoles={selectedIncidentPoles}
+          incidentEvents={incidentDetails?.incidentEvents ?? []}
+          loading={detailsLoading}
+          actionLoading={actionLoading}
+          actionNotice={actionNotice}
+          crewNote={crewNote}
+          resolutionNote={resolutionNote}
+          onCrewNoteChange={setCrewNote}
+          onResolutionNoteChange={setResolutionNote}
+          onAction={runWorkflowAction}
+          onRepair={() => runSimulatorAction('repair')}
+        />
+
+        <SimulatorDock
+          network={network}
+          incidents={activeIncidents}
+          selectedDtId={selectedDtId}
+          selectedFeederId={selectedFeederId}
+          selectedPoleId={selectedPoleId}
+          selectedIncidentId={selectedDetailIncident?.id ?? selectedIncidentId}
+          loading={simulatorLoading}
+          result={simulatorResult}
+          onSelectDt={setSelectedDtId}
+          onSelectFeeder={setSelectedFeederId}
+          onSelectPole={setSelectedPoleId}
+          onSelectIncident={setSelectedIncidentId}
+          onRun={runSimulatorAction}
+        />
       </section>
     </main>
   );
+}
+
+export function AmbientLighting() {
+  return (
+    <>
+      <div className="ambient ambient-one" />
+      <div className="ambient ambient-two" />
+      <div className="grid-texture" />
+    </>
+  );
+}
+
+export function TopNavigation({
+  theme,
+  onToggleTheme,
+  activeIncidentCount,
+  liveDeviceCount,
+  totalDeviceCount,
+  lastTelemetryAt,
+  incidentsLoading,
+  networkLoading,
+}) {
+  return (
+    <header className="top-nav glass-panel">
+      <div className="brand-lockup">
+        <div className="brand-mark">ϟ</div>
+        <div>
+          <p className="eyebrow">KSPDB Control Room</p>
+          <h1>ElecSense</h1>
+        </div>
+      </div>
+
+      <nav className="nav-pills" aria-label="Primary">
+        <a href="#dashboard">Dashboard</a>
+        <a href="#simulator">Simulator</a>
+        <a href="#grid-health">Grid Health</a>
+      </nav>
+
+      <div className="nav-metrics">
+        <MetricChip
+          label="Live Devices"
+          value={`${liveDeviceCount}/${totalDeviceCount}`}
+          pulse={networkLoading}
+        />
+        <MetricChip
+          label="Active Incidents"
+          value={activeIncidentCount}
+          alert={activeIncidentCount > 0}
+          pulse={incidentsLoading}
+        />
+        <MetricChip
+          label="Last Telemetry"
+          value={formatRelativeTime(lastTelemetryAt)}
+        />
+      </div>
+
+      <button className="theme-toggle" type="button" onClick={onToggleTheme}>
+        <span>{theme === 'dark' ? '☾' : '☀'}</span>
+        {theme === 'dark' ? 'Dark' : 'Light'}
+      </button>
+    </header>
+  );
+}
+
+export function MetricChip({ label, value, alert = false, pulse = false }) {
+  return (
+    <div className={`metric-chip ${alert ? 'alert' : ''}`}>
+      <span className={`metric-dot ${pulse ? 'pulse' : ''}`} />
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+export function OperationsMap({
+  network,
+  incidents,
+  selectedIncident,
+  selectedIncidentPoles,
+  selectedPoleId,
+  onSelectIncident,
+  onSelectPole,
+}) {
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const layersRef = useRef(null);
+  const hasFitBoundsRef = useRef(false);
+  const [leafletReady, setLeafletReady] = useState(() => Boolean(window.L));
+
+  useEffect(() => {
+    if (window.L) {
+      setLeafletReady(true);
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      if (window.L) {
+        setLeafletReady(true);
+        window.clearInterval(timer);
+      }
+    }, 80);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!leafletReady || !containerRef.current || mapRef.current) {
+      return undefined;
+    }
+
+    const L = window.L;
+    const map = L.map(containerRef.current, {
+      zoomControl: false,
+      attributionControl: false,
+      preferCanvas: true,
+    }).setView([12.9716, 77.5946], 12);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      crossOrigin: true,
+    }).addTo(map);
+    L.control
+      .attribution({
+        position: 'bottomright',
+        prefix: false,
+      })
+      .addAttribution('© OpenStreetMap')
+      .addTo(map);
+    L.control
+      .zoom({
+        position: 'bottomright',
+      })
+      .addTo(map);
+
+    layersRef.current = {
+      feeders: L.layerGroup().addTo(map),
+      poles: L.layerGroup().addTo(map),
+      dts: L.layerGroup().addTo(map),
+      incidents: L.layerGroup().addTo(map),
+      selected: L.layerGroup().addTo(map),
+    };
+    mapRef.current = map;
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+      layersRef.current = null;
+      hasFitBoundsRef.current = false;
+    };
+  }, [leafletReady]);
+
+  useEffect(() => {
+    if (!leafletReady || !mapRef.current || !layersRef.current || !network) {
+      return;
+    }
+
+    const L = window.L;
+    const map = mapRef.current;
+    const layers = layersRef.current;
+    const poleById = new Map(network.poles.map((pole) => [pole.poleId, pole]));
+    const selectedPoleIds = new Set(
+      selectedIncidentPoles.map((pole) => pole.poleId),
+    );
+
+    Object.values(layers).forEach((layer) => layer.clearLayers());
+
+    for (const pole of network.poles) {
+      const parent = pole.trueParentPoleId
+        ? poleById.get(pole.trueParentPoleId)
+        : null;
+
+      if (!parent) {
+        continue;
+      }
+
+      L.polyline(
+        [
+          [Number(parent.lat), Number(parent.lon)],
+          [Number(pole.lat), Number(pole.lon)],
+        ],
+        {
+          color: 'rgba(94, 162, 255, 0.22)',
+          weight: 1.1,
+          opacity: 0.65,
+          interactive: false,
+        },
+      ).addTo(layers.feeders);
+    }
+
+    for (const pole of network.poles) {
+      const state = getPoleState(pole);
+      const selected = pole.poleId === selectedPoleId;
+      const affected = selectedPoleIds.has(pole.poleId);
+      const marker = L.circleMarker([Number(pole.lat), Number(pole.lon)], {
+        radius: selected ? 7 : affected ? 5 : 3,
+        color: selected
+          ? '#5EA2FF'
+          : affected
+            ? '#FF4D6D'
+            : getDeviceColor(state),
+        weight: selected || affected ? 2 : 1,
+        fillColor: getDeviceColor(state),
+        fillOpacity: affected ? 0.95 : 0.72,
+        opacity: selected || affected ? 1 : 0.62,
+      });
+
+      marker.bindTooltip(
+        `${pole.poleId} · ${pole.dtId} · ${formatPoleState(state)}`,
+        {
+          direction: 'top',
+          opacity: 0.92,
+        },
+      );
+      marker.on('click', () =>
+        onSelectPole({
+          poleId: pole.poleId,
+          dtId: pole.dtId,
+          feederId: pole.feederId,
+        }),
+      );
+      marker.addTo(layers.poles);
+    }
+
+    for (const dt of network.dts) {
+      L.marker([Number(dt.lat), Number(dt.lon)], {
+        icon: L.divIcon({
+          className: 'dt-div-icon',
+          html: `<span>${dt.dtId.replace('DT-', '')}</span>`,
+          iconSize: [42, 42],
+          iconAnchor: [21, 21],
+        }),
+      })
+        .bindTooltip(`${dt.dtId} · ${dt.poleCount} poles`)
+        .addTo(layers.dts);
+    }
+
+    for (const incident of incidents) {
+      if (!incident.lat || !incident.lon) {
+        continue;
+      }
+
+      const selected = incident.id === selectedIncident?.id;
+      const marker = L.circleMarker([Number(incident.lat), Number(incident.lon)], {
+        radius: selected ? 18 : 9,
+        color: getStatusColor(incident.status),
+        weight: selected ? 3 : 1.5,
+        fillColor: getStatusColor(incident.status),
+        fillOpacity: selected ? 0.28 : 0.14,
+        opacity: selected ? 1 : 0.74,
+      });
+
+      marker.on('click', () => onSelectIncident(incident.id));
+      marker.addTo(layers.incidents);
+    }
+
+    if (selectedIncident?.lat && selectedIncident?.lon) {
+      const selectedLatLng = [
+        Number(selectedIncident.lat),
+        Number(selectedIncident.lon),
+      ];
+
+      L.marker(selectedLatLng, {
+        icon: L.divIcon({
+          className: 'selected-incident-pulse',
+          html: '<span></span>',
+          iconSize: [56, 56],
+          iconAnchor: [28, 28],
+        }),
+      }).addTo(layers.selected);
+
+      const boundaryPole = selectedIncident.boundaryPoleId
+        ? poleById.get(selectedIncident.boundaryPoleId)
+        : null;
+      const boundaryParent = selectedIncident.boundaryParentId
+        ? poleById.get(selectedIncident.boundaryParentId)
+        : null;
+
+      if (boundaryPole && boundaryParent) {
+        L.polyline(
+          [
+            [Number(boundaryParent.lat), Number(boundaryParent.lon)],
+            [Number(boundaryPole.lat), Number(boundaryPole.lon)],
+          ],
+          {
+            color: '#FF4D6D',
+            weight: 6,
+            opacity: 0.92,
+            className: 'fault-span-line',
+          },
+        ).addTo(layers.selected);
+      }
+    }
+
+    const bounds = network.poles.map((pole) => [
+      Number(pole.lat),
+      Number(pole.lon),
+    ]);
+
+    if (!hasFitBoundsRef.current && bounds.length > 0) {
+      map.fitBounds(bounds, {
+        paddingTopLeft: [420, 120],
+        paddingBottomRight: [520, 220],
+        maxZoom: 14,
+      });
+      hasFitBoundsRef.current = true;
+    }
+  }, [
+    incidents,
+    leafletReady,
+    network,
+    onSelectIncident,
+    onSelectPole,
+    selectedIncident,
+    selectedIncidentPoles,
+    selectedPoleId,
+  ]);
+
+  useEffect(() => {
+    if (!mapRef.current || !selectedIncident?.lat || !selectedIncident?.lon) {
+      return;
+    }
+
+    mapRef.current.flyTo(
+      [Number(selectedIncident.lat), Number(selectedIncident.lon)],
+      16,
+      {
+        duration: 0.9,
+      },
+    );
+  }, [selectedIncident?.id, selectedIncident?.lat, selectedIncident?.lon]);
+
+  return (
+    <section className="map-shell" id="dashboard">
+      <div className="map-chrome">
+        <div>
+          <p className="eyebrow">Live distribution map</p>
+          <h2>Network Operations Console</h2>
+        </div>
+        <div className="map-legend">
+          <LegendItem color="#33D17A" label="Live" />
+          <LegendItem color="#FF4D6D" label="Dark" />
+          <LegendItem color="#6B7280" label="No sensor" />
+        </div>
+      </div>
+
+      <div className="leaflet-host" ref={containerRef}>
+        {!leafletReady && (
+          <div className="map-loading">
+            <span className="spinner" />
+            Loading Leaflet map…
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function LegendItem({ color, label }) {
+  return (
+    <span className="legend-item">
+      <i style={{ '--legend-color': color }} />
+      {label}
+    </span>
+  );
+}
+
+export function IncidentRail({
+  incidents,
+  selectedIncidentId,
+  loading,
+  error,
+  onSelectIncident,
+}) {
+  return (
+    <aside className="incident-rail glass-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Active Incidents</p>
+          <h2>{incidents.length} open events</h2>
+        </div>
+        <span className={`live-badge ${loading ? 'pulse' : ''}`}>Live</span>
+      </div>
+
+      {error && <div className="notice danger">{error.message}</div>}
+
+      <div className="incident-list">
+        {loading && incidents.length === 0
+          ? Array.from({ length: 4 }, (_, index) => (
+              <div className="incident-card skeleton" key={index} />
+            ))
+          : null}
+
+        {!loading && incidents.length === 0 ? (
+          <div className="empty-state">
+            <span>✓</span>
+            <strong>No active incidents</strong>
+            <p>The grid is quiet. A rare and suspiciously pleasant moment.</p>
+          </div>
+        ) : null}
+
+        {incidents.map((incident) => (
+          <button
+            className={`incident-card ${
+              selectedIncidentId === incident.id ? 'selected' : ''
+            }`}
+            type="button"
+            key={incident.id}
+            onClick={() => onSelectIncident(incident.id)}
+          >
+            <div className="card-row">
+              <StatusPill status={incident.status} />
+              <span className="confidence">{toPercent(incident.confidence)}</span>
+            </div>
+            <h3>{formatIncidentType(incident.type)}</h3>
+            <div className="incident-card-grid">
+              <span>Affected</span>
+              <strong>{incident.affectedPoleCount} poles</strong>
+              <span>Pincode</span>
+              <strong>{incident.pincode ?? '—'}</strong>
+              <span>Detected</span>
+              <strong>{formatRelativeTime(incident.detectedAt)}</strong>
+            </div>
+          </button>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+export function IncidentDetailPanel({
+  incident,
+  incidentPoles,
+  incidentEvents,
+  loading,
+  actionLoading,
+  actionNotice,
+  crewNote,
+  resolutionNote,
+  onCrewNoteChange,
+  onResolutionNoteChange,
+  onAction,
+  onRepair,
+}) {
+  const statusMeta = incident ? STATUS_META[incident.status] : null;
+  const showCrewNote = incident?.status === 'acknowledged';
+  const showResolutionNote = incident?.status === 'crew_assigned';
+
+  return (
+    <aside className="detail-panel glass-panel">
+      {!incident ? (
+        <div className="empty-state detail-empty">
+          <span>⌁</span>
+          <strong>Select an incident</strong>
+          <p>Click a card or a glowing fault marker to inspect the event.</p>
+        </div>
+      ) : (
+        <>
+          <div className="detail-hero">
+            <div>
+              <p className="eyebrow">Incident Details</p>
+              <h2>{formatIncidentType(incident.type)}</h2>
+            </div>
+            <StatusPill status={incident.status} />
+          </div>
+
+          {loading ? <div className="detail-loading shimmer" /> : null}
+
+          {incident.topologySource === 'inferred' ? (
+            <div className="notice warning">
+              Inferred topology: localization confidence includes an MST wiring
+              penalty. Verify field topology before dispatching high-risk work.
+            </div>
+          ) : null}
+
+          {incident.telemetryDisagrees ? (
+            <div className="notice danger">
+              Telemetry disagreement: one or more affected poles are still not
+              reporting live after human resolution.
+            </div>
+          ) : null}
+
+          {actionNotice ? (
+            <div className={`notice ${actionNotice.tone}`}>
+              {actionNotice.message}
+            </div>
+          ) : null}
+
+          <section className="detail-section location-card">
+            <div>
+              <span className="section-icon">⌖</span>
+              <p>Location</p>
+              <strong>
+                {incident.dtId ?? incident.feederId} · {incident.pincode ?? 'No pincode'}
+              </strong>
+            </div>
+            <div>
+              <p>Coordinates</p>
+              <strong>{formatCoordinates(incident.lat, incident.lon)}</strong>
+            </div>
+          </section>
+
+          <section className="metric-grid">
+            <DetailMetric
+              label="Affected Poles"
+              value={incident.affectedPoleCount}
+            />
+            <DetailMetric label="Confidence" value={toPercent(incident.confidence)} />
+            <DetailMetric
+              label="Topology"
+              value={capitalize(incident.topologySource)}
+            />
+            <DetailMetric
+              label="Boundary"
+              value={incident.boundaryPoleId ?? 'Transformer'}
+            />
+          </section>
+
+          <section className="detail-section">
+            <p className="section-label">Confidence Reason</p>
+            <p className="reason-copy">{incident.confidenceReason}</p>
+          </section>
+
+          <section className="detail-section">
+            <div className="section-title-row">
+              <p className="section-label">Incident Timeline</p>
+              <span>{incidentEvents.length} events</span>
+            </div>
+            <div className="timeline">
+              {incidentEvents.length === 0 ? (
+                <p className="muted">No timeline events loaded yet.</p>
+              ) : (
+                incidentEvents.map((event) => (
+                  <div className="timeline-item" key={event.id}>
+                    <span />
+                    <div>
+                      <strong>{formatEventType(event.eventType)}</strong>
+                      <p>{formatRelativeTime(event.createdAt)}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="detail-section actions-section">
+            <p className="section-label">Operator Actions</p>
+
+            {showCrewNote ? (
+              <textarea
+                className="operator-note"
+                placeholder="Crew note, e.g. Field crew Alpha dispatched…"
+                value={crewNote}
+                onChange={(event) => onCrewNoteChange(event.target.value)}
+              />
+            ) : null}
+
+            {showResolutionNote ? (
+              <textarea
+                className="operator-note"
+                placeholder="Resolution note, e.g. Fuse replaced at branch isolator…"
+                value={resolutionNote}
+                onChange={(event) => onResolutionNoteChange(event.target.value)}
+              />
+            ) : null}
+
+            <div className="action-row">
+              {statusMeta?.actionPath ? (
+                <button
+                  className="primary-action"
+                  type="button"
+                  disabled={actionLoading !== null}
+                  onClick={() => onAction(statusMeta.actionPath)}
+                >
+                  {actionLoading === statusMeta.actionPath ? (
+                    <span className="spinner small" />
+                  ) : (
+                    <span>↗</span>
+                  )}
+                  {statusMeta.actionLabel}
+                </button>
+              ) : null}
+
+              {incident.status !== 'closed' ? (
+                <button
+                  className="secondary-action"
+                  type="button"
+                  onClick={onRepair}
+                >
+                  <span>↻</span>
+                  Repair Telemetry
+                </button>
+              ) : null}
+            </div>
+
+            {incident.status === 'resolved' ? (
+              <p className="muted">
+                Waiting for the detection loop to auto-verify once all affected
+                poles report live.
+              </p>
+            ) : null}
+          </section>
+
+          <section className="detail-section affected-strip">
+            <p className="section-label">Affected Devices</p>
+            <div>
+              {incidentPoles.slice(0, 10).map((pole) => (
+                <span
+                  className={`device-chip ${getPoleState({ current: pole })}`}
+                  key={pole.poleId}
+                >
+                  {pole.poleId}
+                </span>
+              ))}
+              {incidentPoles.length > 10 ? (
+                <span className="device-chip muted-chip">
+                  +{incidentPoles.length - 10}
+                </span>
+              ) : null}
+            </div>
+          </section>
+        </>
+      )}
+    </aside>
+  );
+}
+
+export function DetailMetric({ label, value }) {
+  return (
+    <div className="detail-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+export function SimulatorDock({
+  network,
+  incidents,
+  selectedDtId,
+  selectedFeederId,
+  selectedPoleId,
+  selectedIncidentId,
+  loading,
+  result,
+  onSelectDt,
+  onSelectFeeder,
+  onSelectPole,
+  onSelectIncident,
+  onRun,
+}) {
+  const dtPoles = useMemo(
+    () => (network && selectedDtId ? getPolesForDt(network, selectedDtId) : []),
+    [network, selectedDtId],
+  );
+
+  return (
+    <section className="simulator-dock glass-panel" id="simulator">
+      <div className="simulator-header">
+        <div>
+          <p className="eyebrow">Simulator</p>
+          <h2>Fault Injection Rig</h2>
+        </div>
+        <span className="engineering-chip">Live API Path</span>
+      </div>
+
+      <div className="simulator-selects">
+        <label>
+          Feeder
+          <select
+            value={selectedFeederId ?? ''}
+            onChange={(event) => onSelectFeeder(event.target.value)}
+          >
+            {(network?.feeders ?? []).map((feeder) => (
+              <option key={feeder.feederId} value={feeder.feederId}>
+                {feeder.feederId}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          DT
+          <select
+            value={selectedDtId ?? ''}
+            onChange={(event) => onSelectDt(event.target.value)}
+          >
+            {(network?.dts ?? []).map((dt) => (
+              <option key={dt.dtId} value={dt.dtId}>
+                {dt.dtId} · {dt.poleCount}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          Pole
+          <select
+            value={selectedPoleId ?? ''}
+            onChange={(event) => onSelectPole(event.target.value)}
+          >
+            {dtPoles.map((pole) => (
+              <option key={pole.poleId} value={pole.poleId}>
+                {pole.poleId}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          Incident
+          <select
+            value={selectedIncidentId ?? ''}
+            onChange={(event) => onSelectIncident(event.target.value)}
+          >
+            {incidents.map((incident) => (
+              <option key={incident.id} value={incident.id}>
+                {formatIncidentType(incident.type)} · {STATUS_META[incident.status]?.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="simulator-actions">
+        <SimulatorButton
+          icon="⚡"
+          label="Inject Span Fault"
+          kind="span"
+          loading={loading}
+          disabled={!selectedDtId || !selectedPoleId}
+          onRun={onRun}
+        />
+        <SimulatorButton
+          icon="⌁"
+          label="DT Fault"
+          kind="dt"
+          loading={loading}
+          disabled={!selectedDtId}
+          onRun={onRun}
+        />
+        <SimulatorButton
+          icon="⎋"
+          label="Feeder Fault"
+          kind="feeder"
+          loading={loading}
+          disabled={!selectedFeederId}
+          onRun={onRun}
+        />
+        <SimulatorButton
+          icon="⊘"
+          label="Dead Sensor"
+          kind="dead-sensor"
+          loading={loading}
+          disabled={!selectedPoleId}
+          onRun={onRun}
+        />
+        <SimulatorButton
+          icon="↻"
+          label="Repair"
+          kind="repair"
+          loading={loading}
+          disabled={!selectedIncidentId}
+          onRun={onRun}
+        />
+      </div>
+
+      {result ? (
+        <div className={`simulator-result ${result.tone}`}>
+          <strong>{result.title}</strong>
+          <p>{result.message ?? summarizeSimulatorResult(result.result)}</p>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+export function SimulatorButton({ icon, label, kind, loading, disabled, onRun }) {
+  const active = loading === kind;
+
+  return (
+    <button
+      className="simulator-button"
+      type="button"
+      disabled={disabled || loading !== null}
+      onClick={() => onRun(kind)}
+    >
+      {active ? <span className="spinner small" /> : <span>{icon}</span>}
+      {label}
+    </button>
+  );
+}
+
+export function StatusPill({ status }) {
+  const meta = STATUS_META[status] ?? {
+    label: capitalize(status),
+    tone: 'closed',
+  };
+
+  return <span className={`status-pill ${meta.tone}`}>{meta.label}</span>;
+}
+
+function buildSimulatorRequest({
+  kind,
+  selectedDtId,
+  selectedFeederId,
+  selectedPoleId,
+  selectedIncidentId,
+}) {
+  const requests = {
+    span: {
+      label: 'Span Fault Injected',
+      path: '/api/simulator/span-fault',
+      body: {
+        dtId: selectedDtId,
+        atPoleId: selectedPoleId,
+      },
+    },
+    dt: {
+      label: 'DT Fault Injected',
+      path: '/api/simulator/dt-fault',
+      body: {
+        dtId: selectedDtId,
+      },
+    },
+    feeder: {
+      label: 'Feeder Fault Injected',
+      path: '/api/simulator/feeder-fault',
+      body: {
+        feederId: selectedFeederId,
+      },
+    },
+    'dead-sensor': {
+      label: 'Dead Sensor Simulated',
+      path: '/api/simulator/dead-sensor',
+      body: {
+        poleId: selectedPoleId,
+      },
+    },
+    repair: {
+      label: 'Repair Telemetry Sent',
+      path: `/api/simulator/repair/${selectedIncidentId}`,
+      body: {},
+    },
+  };
+
+  return requests[kind] ?? null;
+}
+
+function formatWorkflowNotice(actionPath, result) {
+  if (actionPath === 'mark-resolved' && result.telemetryMismatch) {
+    return {
+      tone: 'warning',
+      message: result.message,
+    };
+  }
+
+  return {
+    tone: 'success',
+    message: `Incident moved to ${STATUS_META[result.incident.status]?.label}.`,
+  };
+}
+
+async function fetchJson(path, options = {}) {
+  const response = await fetch(path, {
+    method: options.method ?? 'GET',
+    headers: API_HEADERS,
+    body:
+      options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : {};
+
+  if (!response.ok) {
+    throw new Error(payload.message ?? payload.error ?? response.statusText);
+  }
+
+  return payload;
+}
+
+function sortIncidents(incidents) {
+  return [...incidents].sort((left, right) => {
+    const leftPriority = STATUS_META[left.status]?.priority ?? 99;
+    const rightPriority = STATUS_META[right.status]?.priority ?? 99;
+
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+
+    if (left.affectedPoleCount !== right.affectedPoleCount) {
+      return right.affectedPoleCount - left.affectedPoleCount;
+    }
+
+    return new Date(right.detectedAt) - new Date(left.detectedAt);
+  });
+}
+
+function buildNetworkStats(network) {
+  const poles = network?.poles ?? [];
+  const devicePoles = poles.filter((pole) => pole.current?.deviceId);
+  const liveDevices = devicePoles.filter(
+    (pole) => pole.current?.lastState === 'live',
+  ).length;
+  const lastTelemetryAt = devicePoles
+    .map((pole) => pole.current?.lastSeenTs)
+    .filter(Boolean)
+    .sort((left, right) => new Date(right) - new Date(left))[0];
+
+  return {
+    totalPoles: poles.length,
+    totalDevices: devicePoles.length,
+    liveDevices,
+    darkDevices: devicePoles.filter((pole) => pole.current?.lastState === 'dark')
+      .length,
+    noSensorPoles: poles.length - devicePoles.length,
+    lastTelemetryAt,
+  };
+}
+
+function getPolesForDt(network, dtId) {
+  return (network?.poles ?? [])
+    .filter((pole) => pole.dtId === dtId)
+    .sort((left, right) => compareIds(left.poleId, right.poleId));
+}
+
+function getPoleState(pole) {
+  if (!pole.current?.deviceId && !pole.deviceId) {
+    return 'no-sensor';
+  }
+
+  const lastState = pole.current?.lastState ?? pole.lastState;
+
+  return lastState === 'dark' ? 'dark' : lastState === 'live' ? 'live' : 'idle';
+}
+
+function getDeviceColor(state) {
+  if (state === 'live') {
+    return '#33D17A';
+  }
+
+  if (state === 'dark') {
+    return '#FF4D6D';
+  }
+
+  return '#6B7280';
+}
+
+function getStatusColor(status) {
+  const colors = {
+    detected: '#FF4D6D',
+    acknowledged: '#FFB84D',
+    crew_assigned: '#FFD666',
+    resolved: '#7BD88F',
+    verified: '#33D17A',
+    closed: '#6B7280',
+  };
+
+  return colors[status] ?? '#5EA2FF';
+}
+
+function summarizeSimulatorResult(result) {
+  if (!result) {
+    return 'Simulator request completed.';
+  }
+
+  const telemetryCount = result.telemetry?.generatedEventCount ?? 0;
+  const affectedCount = result.affectedPoleCount ?? 0;
+  const detectionCount = result.detection?.createdIncidentCount ?? 0;
+
+  return `${telemetryCount} telemetry events sent across ${affectedCount} affected poles. ${detectionCount} new incident candidates created.`;
+}
+
+function formatIncidentType(type) {
+  return INCIDENT_TYPE_LABELS[type] ?? capitalize(type);
+}
+
+function formatEventType(type) {
+  return type
+    .split('_')
+    .map((part) => capitalize(part))
+    .join(' ');
+}
+
+function formatPoleState(state) {
+  return state.replace('-', ' ');
+}
+
+function formatCoordinates(lat, lon) {
+  if (!lat || !lon) {
+    return '—';
+  }
+
+  return `${Number(lat).toFixed(5)}, ${Number(lon).toFixed(5)}`;
+}
+
+function formatRelativeTime(value) {
+  if (!value) {
+    return 'No telemetry';
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  const diffMs = Date.now() - date.getTime();
+  const absMs = Math.abs(diffMs);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (absMs < minute) {
+    return 'just now';
+  }
+
+  if (absMs < hour) {
+    return `${Math.round(absMs / minute)}m ago`;
+  }
+
+  if (absMs < day) {
+    return `${Math.round(absMs / hour)}h ago`;
+  }
+
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function toPercent(value) {
+  const numeric = Number(value);
+
+  if (!Number.isFinite(numeric)) {
+    return '—';
+  }
+
+  return `${Math.round(numeric * 100)}%`;
+}
+
+function capitalize(value) {
+  if (!value) {
+    return '—';
+  }
+
+  return `${value}`.charAt(0).toUpperCase() + `${value}`.slice(1);
+}
+
+function compareIds(left, right) {
+  return left.localeCompare(right);
 }
