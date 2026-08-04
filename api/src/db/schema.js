@@ -180,6 +180,11 @@ export const incidents = pgTable(
     topologySource: text('topology_source', {
       enum: ['surveyed', 'inferred', 'unknown'],
     }).notNull(),
+    dispatchNote: text('dispatch_note'),
+    dispatchNoteSource: text('dispatch_note_source', {
+      enum: ['llm', 'template-fallback'],
+    }),
+    dispatchNoteFingerprint: text('dispatch_note_fingerprint'),
     status: text('status', {
       enum: [
         'detected',
@@ -218,6 +223,10 @@ export const incidents = pgTable(
     check(
       'incidents_topology_source_check',
       sql`${table.topologySource} in ('surveyed', 'inferred', 'unknown')`,
+    ),
+    check(
+      'incidents_dispatch_note_source_check',
+      sql`${table.dispatchNoteSource} in ('llm', 'template-fallback')`,
     ),
     check(
       'incidents_status_check',

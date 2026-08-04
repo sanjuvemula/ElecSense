@@ -15,4 +15,14 @@ Simulator endpoints are intentionally unauthenticated for take-home review:
 - `POST /api/simulator/scheduled-outage` with `{ "dtId": "DT-001" }` creates an active planned outage and injects dark telemetry.
 - `POST /api/simulator/repair/:incidentId` sends `boot` + `power_restored` telemetry for an incident's affected poles.
 
+# AI Dispatch Notes
+
+`POST /api/incidents/:id/dispatch-note` generates and stores a crew-ready field
+dispatch note from the already-localized incident record. The backend uses
+Anthropic's Messages API with `claude-3-5-haiku-latest` by default because this
+feature is short, low-latency prose formatting rather than fault reasoning. Set
+`ANTHROPIC_API_KEY` to enable LLM notes; if the request fails or times out after
+about 5 seconds, the API stores a deterministic `template-fallback` note instead.
+The LLM only receives structured incident fields and never raw telemetry.
+
 # Docs

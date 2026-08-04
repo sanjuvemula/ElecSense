@@ -16,6 +16,7 @@ import {
   createTransitionPlan,
   INCIDENT_STATUSES,
 } from '../services/incidentLifecycle.js';
+import { generateDispatchNote } from '../services/dispatchNote.js';
 
 const allowedStatuses = new Set(INCIDENT_STATUSES);
 
@@ -113,6 +114,38 @@ router.post('/:id/close', async (req, res, next) => {
   });
 });
 
+router.post('/:id/dispatch-note', async (req, res, next) => {
+  try {
+    const database = requireDatabase();
+    const regenerate = parseRegenerateFlag(req.body);
+    const incident = await fetchIncidentById(database, req.params.id);
+
+    if (!incident) {
+      res.status(404).json({ error: 'Incident not found' });
+      return;
+    }
+
+    const dispatchNote = await generateDispatchNote(incident, {
+      regenerate,
+    });
+    const updatedIncident = await storeDispatchNote(
+      database,
+      incident.id,
+      dispatchNote,
+    );
+
+    res.json({
+      incident: updatedIncident,
+      dispatchNote: dispatchNote.note,
+      source: dispatchNote.source,
+      reused: dispatchNote.reused,
+      ...(dispatchNote.error ? { fallbackReason: dispatchNote.error } : {}),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 async function handleTransitionRequest(req, res, next, config) {
   try {
     const database = requireDatabase();
@@ -197,6 +230,33 @@ async function applyIncidentTransition(database, incidentId, plan) {
   }
 
   return run(database);
+}
+
+async function storeDispatchNote(database, incidentId, dispatchNote) {
+  if (dispatchNote.reused) {
+    return fetchIncidentById(database, incidentId);
+  }
+
+  const [updatedIncident] = await database
+    .update(incidents)
+    .set({
+      dispatchNote: dispatchNote.note,
+      dispatchNoteSource: dispatchNote.source,
+      dispatchNoteFingerprint: dispatchNote.fingerprint,
+    })
+    .where(eq(incidents.id, incidentId))
+    .returning();
+
+  await database.insert(incidentEvents).values({
+    incidentId,
+    eventType: 'dispatch_note_generated',
+    payload: {
+      source: dispatchNote.source,
+      fallbackReason: dispatchNote.error ?? null,
+    },
+  });
+
+  return updatedIncident;
 }
 
 async function buildTelemetryDisagreementMap(database, incidentRows, now) {
@@ -290,6 +350,20 @@ function parseOptionalBodyField(body, fieldName) {
   }
 
   return { [fieldName]: body[fieldName] };
+}
+
+function parseRegenerateFlag(body) {
+  if (body?.regenerate === undefined) {
+    return false;
+  }
+
+  if (typeof body.regenerate !== 'boolean') {
+    const error = new Error('regenerate must be a boolean when provided.');
+    error.status = 400;
+    throw error;
+  }
+
+  return body.regenerate;
 }
 
 function groupBy(values, keyFn) {

@@ -776,7 +776,8 @@ h1 {
 
 .primary-action,
 .secondary-action,
-.simulator-button {
+.simulator-button,
+.mini-action {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -803,15 +804,52 @@ h1 {
 }
 
 .secondary-action,
-.simulator-button {
+.simulator-button,
+.mini-action {
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.055);
 }
 
 .secondary-action:hover,
-.simulator-button:hover {
+.simulator-button:hover,
+.mini-action:hover {
   border-color: rgba(94, 162, 255, 0.25);
   background: rgba(94, 162, 255, 0.1);
+}
+
+.mini-action {
+  min-height: 36px;
+  padding: 0 11px;
+  border-radius: 999px;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+}
+
+.dispatch-note-card {
+  background:
+    linear-gradient(145deg, rgba(94, 162, 255, 0.11), rgba(255, 255, 255, 0.035)),
+    rgba(255, 255, 255, 0.04);
+}
+
+.dispatch-source {
+  display: block;
+  margin-top: 5px;
+  color: var(--brand);
+  font-size: 0.74rem;
+}
+
+.dispatch-note-copy {
+  margin-top: 14px;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+
+.dispatch-disclaimer {
+  margin-top: 12px;
+  color: var(--text-disabled);
+  font-size: 0.75rem;
+  line-height: 1.45;
 }
 
 .affected-strip > div {

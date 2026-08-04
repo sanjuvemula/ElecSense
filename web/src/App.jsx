@@ -64,10 +64,13 @@ export default function App() {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
   const [actionNotice, setActionNotice] = useState(null);
+  const [dispatchLoading, setDispatchLoading] = useState(false);
+  const [dispatchNotice, setDispatchNotice] = useState(null);
   const [crewNote, setCrewNote] = useState('');
   const [resolutionNote, setResolutionNote] = useState('');
   const [simulatorLoading, setSimulatorLoading] = useState(null);
   const [simulatorResult, setSimulatorResult] = useState(null);
+  const lastDispatchAutoKeyRef = useRef(null);
 
   const incidentsPoll = usePolling(
     async () => {
@@ -176,6 +179,88 @@ export default function App() {
       cancelled = true;
     };
   }, [selectedIncidentId, incidentsPoll.updatedAt]);
+
+  const requestDispatchNote = useCallback(
+    async ({ incidentId, regenerate = false, silent = false } = {}) => {
+      const targetIncidentId = incidentId ?? selectedDetailIncident?.id;
+
+      if (!targetIncidentId) {
+        return null;
+      }
+
+      setDispatchLoading(true);
+
+      if (!silent) {
+        setDispatchNotice(null);
+      }
+
+      try {
+        const result = await fetchJson(
+          `/api/incidents/${targetIncidentId}/dispatch-note`,
+          {
+            method: 'POST',
+            body: {
+              regenerate,
+            },
+          },
+        );
+
+        setIncidentDetails((current) => {
+          if (!current || current.incident?.id !== targetIncidentId) {
+            return current;
+          }
+
+          return {
+            ...current,
+            incident: result.incident,
+          };
+        });
+
+        if (!silent) {
+          setDispatchNotice(formatDispatchNotice(result));
+        }
+
+        return result;
+      } catch (error) {
+        if (!silent) {
+          setDispatchNotice({
+            tone: 'danger',
+            message: error.message,
+          });
+        }
+
+        return null;
+      } finally {
+        setDispatchLoading(false);
+      }
+    },
+    [selectedDetailIncident?.id],
+  );
+
+  useEffect(() => {
+    if (!selectedDetailIncident?.id) {
+      return;
+    }
+
+    const autoKey = buildDispatchAutoKey(selectedDetailIncident);
+
+    if (lastDispatchAutoKeyRef.current === autoKey) {
+      return;
+    }
+
+    lastDispatchAutoKeyRef.current = autoKey;
+    void requestDispatchNote({
+      incidentId: selectedDetailIncident.id,
+      regenerate: false,
+      silent: true,
+    });
+  }, [
+    requestDispatchNote,
+    selectedDetailIncident?.confidence,
+    selectedDetailIncident?.id,
+    selectedDetailIncident?.status,
+    selectedDetailIncident?.topologySource,
+  ]);
 
   async function refreshConsole() {
     await Promise.all([incidentsPoll.refetch(), networkPoll.refetch()]);
@@ -316,12 +401,17 @@ export default function App() {
           loading={detailsLoading}
           actionLoading={actionLoading}
           actionNotice={actionNotice}
+          dispatchLoading={dispatchLoading}
+          dispatchNotice={dispatchNotice}
           crewNote={crewNote}
           resolutionNote={resolutionNote}
           onCrewNoteChange={setCrewNote}
           onResolutionNoteChange={setResolutionNote}
           onAction={runWorkflowAction}
           onRepair={() => runSimulatorAction('repair')}
+          onRegenerateDispatchNote={() =>
+            requestDispatchNote({ regenerate: true })
+          }
         />
 
         <SimulatorDock
@@ -778,12 +868,15 @@ export function IncidentDetailPanel({
   loading,
   actionLoading,
   actionNotice,
+  dispatchLoading,
+  dispatchNotice,
   crewNote,
   resolutionNote,
   onCrewNoteChange,
   onResolutionNoteChange,
   onAction,
   onRepair,
+  onRegenerateDispatchNote,
 }) {
   const statusMeta = incident ? STATUS_META[incident.status] : null;
   const showCrewNote = incident?.status === 'acknowledged';
@@ -829,6 +922,12 @@ export function IncidentDetailPanel({
             </div>
           ) : null}
 
+          {dispatchNotice ? (
+            <div className={`notice ${dispatchNotice.tone}`}>
+              {dispatchNotice.message}
+            </div>
+          ) : null}
+
           <section className="detail-section location-card">
             <div>
               <span className="section-icon">⌖</span>
@@ -857,6 +956,34 @@ export function IncidentDetailPanel({
               label="Boundary"
               value={incident.boundaryPoleId ?? 'Transformer'}
             />
+          </section>
+
+          <section className="detail-section dispatch-note-card">
+            <div className="section-title-row">
+              <div>
+                <p className="section-label">Field Dispatch Note</p>
+                <span className="dispatch-source">
+                  {formatDispatchSource(incident.dispatchNoteSource)}
+                </span>
+              </div>
+              <button
+                className="mini-action"
+                type="button"
+                disabled={dispatchLoading}
+                onClick={onRegenerateDispatchNote}
+              >
+                {dispatchLoading ? <span className="spinner small" /> : '↻'}
+                {incident.dispatchNote ? 'Regenerate' : 'Generate'}
+              </button>
+            </div>
+            <p className="dispatch-note-copy">
+              {incident.dispatchNote ??
+                'Generating a crew-ready note from the deterministic incident summary…'}
+            </p>
+            <p className="dispatch-disclaimer">
+              Auto-generated from computed incident data only. Verify before
+              dispatch.
+            </p>
           </section>
 
           <section className="detail-section">
@@ -1202,6 +1329,44 @@ function formatWorkflowNotice(actionPath, result) {
     tone: 'success',
     message: `Incident moved to ${STATUS_META[result.incident.status]?.label}.`,
   };
+}
+
+function formatDispatchNotice(result) {
+  if (result.source === 'template-fallback') {
+    return {
+      tone: 'warning',
+      message:
+        'Dispatch note generated from the local fallback template because the LLM was unavailable.',
+    };
+  }
+
+  return {
+    tone: 'success',
+    message: result.reused
+      ? 'Stored dispatch note is still current.'
+      : 'Dispatch note regenerated with the LLM.',
+  };
+}
+
+function buildDispatchAutoKey(incident) {
+  return [
+    incident.id,
+    incident.status,
+    incident.confidence,
+    incident.topologySource,
+  ].join(':');
+}
+
+function formatDispatchSource(source) {
+  if (source === 'llm') {
+    return 'LLM-generated · verify before dispatch';
+  }
+
+  if (source === 'template-fallback') {
+    return 'Template fallback · verify before dispatch';
+  }
+
+  return 'Pending generation';
 }
 
 async function fetchJson(path, options = {}) {
