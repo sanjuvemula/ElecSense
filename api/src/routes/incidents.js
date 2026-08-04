@@ -12,15 +12,12 @@ import {
   hasTelemetryDisagreement,
   DEFAULT_AUTO_VERIFY_LIVE_WINDOW_MS,
 } from '../services/incidentTelemetry.js';
+import {
+  createTransitionPlan,
+  INCIDENT_STATUSES,
+} from '../services/incidentLifecycle.js';
 
-const allowedStatuses = new Set([
-  'detected',
-  'acknowledged',
-  'crew_assigned',
-  'resolved',
-  'verified',
-  'closed',
-]);
+const allowedStatuses = new Set(INCIDENT_STATUSES);
 
 const router = Router();
 
@@ -59,11 +56,7 @@ router.get('/', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     const database = requireDatabase();
-    const [incident] = await database
-      .select()
-      .from(incidents)
-      .where(eq(incidents.id, req.params.id))
-      .limit(1);
+    const incident = await fetchIncidentById(database, req.params.id);
 
     if (!incident) {
       res.status(404).json({ error: 'Incident not found' });
@@ -93,6 +86,69 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
+router.post('/:id/acknowledge', async (req, res, next) => {
+  await handleTransitionRequest(req, res, next, {
+    toStatus: 'acknowledged',
+  });
+});
+
+router.post('/:id/assign-crew', async (req, res, next) => {
+  await handleTransitionRequest(req, res, next, {
+    toStatus: 'crew_assigned',
+    bodyField: 'crewNote',
+  });
+});
+
+router.post('/:id/mark-resolved', async (req, res, next) => {
+  await handleTransitionRequest(req, res, next, {
+    toStatus: 'resolved',
+    bodyField: 'note',
+    includeTelemetryWarning: true,
+  });
+});
+
+router.post('/:id/close', async (req, res, next) => {
+  await handleTransitionRequest(req, res, next, {
+    toStatus: 'closed',
+  });
+});
+
+async function handleTransitionRequest(req, res, next, config) {
+  try {
+    const database = requireDatabase();
+    const noteFields = parseOptionalBodyField(req.body, config.bodyField);
+    const incident = await fetchIncidentById(database, req.params.id);
+
+    if (!incident) {
+      res.status(404).json({ error: 'Incident not found' });
+      return;
+    }
+
+    const affectedPoles = config.includeTelemetryWarning
+      ? await fetchIncidentPoles(database, incident.id)
+      : [];
+    const plan = createTransitionPlan({
+      incident,
+      toStatus: config.toStatus,
+      now: new Date(),
+      affectedPoles,
+      ...noteFields,
+    });
+    const updatedIncident = await applyIncidentTransition(
+      database,
+      incident.id,
+      plan,
+    );
+
+    res.json({
+      incident: updatedIncident,
+      ...(plan.telemetryWarning ?? {}),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function listIncidents(database, statuses) {
   let query = database
     .select()
@@ -108,6 +164,39 @@ async function listIncidents(database, statuses) {
   }
 
   return query;
+}
+
+async function fetchIncidentById(database, incidentId) {
+  const [incident] = await database
+    .select()
+    .from(incidents)
+    .where(eq(incidents.id, incidentId))
+    .limit(1);
+
+  return incident ?? null;
+}
+
+async function applyIncidentTransition(database, incidentId, plan) {
+  const run = async (transaction) => {
+    await transaction
+      .update(incidents)
+      .set(plan.statusPatch)
+      .where(eq(incidents.id, incidentId));
+
+    await transaction.insert(incidentEvents).values({
+      incidentId,
+      eventType: plan.event.eventType,
+      payload: plan.event.payload,
+    });
+
+    return fetchIncidentById(transaction, incidentId);
+  };
+
+  if (typeof database.transaction === 'function') {
+    return database.transaction(run);
+  }
+
+  return run(database);
 }
 
 async function buildTelemetryDisagreementMap(database, incidentRows, now) {
@@ -187,6 +276,20 @@ function parseStatusFilter(value) {
   }
 
   return statuses;
+}
+
+function parseOptionalBodyField(body, fieldName) {
+  if (!fieldName || body?.[fieldName] === undefined) {
+    return {};
+  }
+
+  if (typeof body[fieldName] !== 'string') {
+    const error = new Error(`${fieldName} must be a string when provided.`);
+    error.status = 400;
+    throw error;
+  }
+
+  return { [fieldName]: body[fieldName] };
 }
 
 function groupBy(values, keyFn) {
