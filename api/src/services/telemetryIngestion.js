@@ -251,7 +251,7 @@ async function updatePoleStates(db, updates) {
     const values = sql.join(
       chunk.map(
         (update) =>
-          sql`(${update.poleId}, ${update.lastState}, ${update.lastSeenTs}, ${update.lastSeq}, ${update.isBoot})`,
+          sql`(${update.poleId}::text, ${update.lastState}::text, ${toTimestampTzParam(update.lastSeenTs)}::timestamptz, ${update.lastSeq}::integer, ${update.isBoot}::boolean)`,
       ),
       sql`, `,
     );
@@ -367,6 +367,10 @@ function truncateToSecond(value) {
   const date = normalizeDate(value);
 
   return new Date(Math.floor(date.getTime() / 1000) * 1000);
+}
+
+function toTimestampTzParam(value) {
+  return normalizeDate(value).toISOString();
 }
 
 function normalizeDate(value) {

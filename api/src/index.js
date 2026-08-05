@@ -18,8 +18,16 @@ app.use('/api/incidents', incidentRoutes);
 app.use('/api/simulator', simulatorRoutes);
 app.use('/health', healthRoutes);
 
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
   const status = err.status ?? 500;
+
+  console.error('Unhandled request error.', {
+    method: req.method,
+    path: req.originalUrl,
+    status,
+    message: err.message,
+    stack: err.stack,
+  });
 
   res.status(status).json({
     error: status === 500 ? 'Internal server error' : err.message,

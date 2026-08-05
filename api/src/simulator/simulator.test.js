@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
+import { access } from 'node:fs/promises';
 import test from 'node:test';
 
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+
+import * as schema from '../db/schema.js';
 import {
   assertGroundTruthSeedMatches,
   buildTruthTree,
@@ -8,6 +13,7 @@ import {
   createFaultTelemetryPlan,
   createLiveHeartbeatPlan,
   createRepairTelemetryPlan,
+  injectSpanFault,
 } from './simulator.js';
 
 const now = new Date('2026-08-04T10:00:00.000Z');
@@ -139,6 +145,54 @@ test('missing database seed metadata fails loudly before simulator injection', (
     () => assertGroundTruthSeedMatches({ seed: 240731 }, null),
     /Database network seed metadata is missing/,
   );
+});
+
+test('span fault injection succeeds against a seeded database DT', async (t) => {
+  const databaseUrl = process.env.DATABASE_URL;
+  const groundTruthPath = process.env.GROUND_TRUTH_PATH;
+
+  if (!databaseUrl || !groundTruthPath) {
+    t.skip('requires DATABASE_URL and GROUND_TRUTH_PATH');
+    return;
+  }
+
+  try {
+    await access(groundTruthPath);
+  } catch {
+    t.skip(`requires readable ground truth at ${groundTruthPath}`);
+    return;
+  }
+
+  const client = postgres(databaseUrl, { max: 1 });
+  const database = drizzle(client, { schema });
+
+  try {
+    const [dt] = await database
+      .select({ dtId: schema.dts.dtId })
+      .from(schema.dts)
+      .orderBy(schema.dts.dtId)
+      .limit(1);
+
+    assert.ok(dt, 'expected a seeded database DT');
+
+    const result = await injectSpanFault(
+      { dtId: dt.dtId },
+      {
+        db: database,
+        groundTruthPath,
+        rng: repeatingRng([0.01, 0.2, 0.3, 0.4, 0.5]),
+        runDetection: false,
+      },
+    );
+
+    assert.equal(result.type, 'span_fault');
+    assert.equal(result.dtId, dt.dtId);
+    assert.ok(result.affectedPoleCount > 0);
+    assert.ok(result.telemetry.generatedEventCount > 0);
+    assert.ok(result.telemetry.ingestion.stored > 0);
+  } finally {
+    await client.end();
+  }
 });
 
 function truthPole(poleId, trueParentPoleId) {
