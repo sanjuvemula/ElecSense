@@ -455,70 +455,76 @@ export function OperatorConsole({
     <section className="console-shell" id="dashboard">
       <ConsoleHashScroller />
 
-      <ConsoleSummary
-        activeIncidentCount={activeIncidents.length}
-        networkStats={networkStats}
-      />
+      <section className="operator-layout">
+        <aside className="operator-left-column">
+          <ConsoleSummary
+            activeIncidentCount={activeIncidents.length}
+            networkStats={networkStats}
+          />
 
-      <section className="workspace dashboard-workspace">
-        <IncidentRail
-          incidents={activeIncidents}
-          selectedIncidentId={selectedDetailIncident?.id}
-          loading={incidentsLoading}
-          error={incidentsError}
-          onSelectIncident={onSelectIncident}
-        />
+          <IncidentRail
+            incidents={activeIncidents}
+            selectedIncidentId={selectedDetailIncident?.id}
+            loading={incidentsLoading}
+            error={incidentsError}
+            onSelectIncident={onSelectIncident}
+          />
 
-        <OperationsMap
-          network={network}
-          incidents={activeIncidents}
-          selectedIncident={selectedDetailIncident}
-          selectedIncidentPoles={selectedIncidentPoles}
-          selectedPoleId={selectedPoleId}
-          onSelectIncident={onSelectIncident}
-          onSelectPole={onMapPoleSelect}
-        />
+          <GridHealthPanel
+            network={network}
+            networkStats={networkStats}
+            incidents={activeIncidents}
+          />
+        </aside>
 
-        <IncidentDetailPanel
-          incident={selectedDetailIncident}
-          incidentPoles={selectedIncidentPoles}
-          incidentEvents={incidentDetails?.incidentEvents ?? []}
-          loading={detailsLoading}
-          actionLoading={actionLoading}
-          actionNotice={actionNotice}
-          dispatchLoading={dispatchLoading}
-          dispatchNotice={dispatchNotice}
-          crewNote={crewNote}
-          resolutionNote={resolutionNote}
-          onCrewNoteChange={onCrewNoteChange}
-          onResolutionNoteChange={onResolutionNoteChange}
-          onAction={onAction}
-          onRepair={onRepair}
-          onRegenerateDispatchNote={onRegenerateDispatchNote}
-        />
+        <section className="operator-right-column">
+          <OperationsMap
+            network={network}
+            incidents={activeIncidents}
+            selectedIncident={selectedDetailIncident}
+            selectedIncidentPoles={selectedIncidentPoles}
+            selectedPoleId={selectedPoleId}
+            onSelectIncident={onSelectIncident}
+            onSelectPole={onMapPoleSelect}
+          />
+
+          <SimulatorDock
+            network={network}
+            incidents={activeIncidents}
+            selectedDtId={selectedDtId}
+            selectedFeederId={selectedFeederId}
+            selectedPoleId={selectedPoleId}
+            selectedIncidentId={
+              selectedDetailIncident?.id ?? selectedIncidentId
+            }
+            loading={simulatorLoading}
+            result={simulatorResult}
+            onSelectDt={onSelectDt}
+            onSelectFeeder={onSelectFeeder}
+            onSelectPole={onSelectPole}
+            onSelectIncident={onSelectIncident}
+            onRun={onRunSimulator}
+          />
+
+          <IncidentDetailPanel
+            incident={selectedDetailIncident}
+            incidentPoles={selectedIncidentPoles}
+            incidentEvents={incidentDetails?.incidentEvents ?? []}
+            loading={detailsLoading}
+            actionLoading={actionLoading}
+            actionNotice={actionNotice}
+            dispatchLoading={dispatchLoading}
+            dispatchNotice={dispatchNotice}
+            crewNote={crewNote}
+            resolutionNote={resolutionNote}
+            onCrewNoteChange={onCrewNoteChange}
+            onResolutionNoteChange={onResolutionNoteChange}
+            onAction={onAction}
+            onRepair={onRepair}
+            onRegenerateDispatchNote={onRegenerateDispatchNote}
+          />
+        </section>
       </section>
-
-      <SimulatorDock
-        network={network}
-        incidents={activeIncidents}
-        selectedDtId={selectedDtId}
-        selectedFeederId={selectedFeederId}
-        selectedPoleId={selectedPoleId}
-        selectedIncidentId={selectedDetailIncident?.id ?? selectedIncidentId}
-        loading={simulatorLoading}
-        result={simulatorResult}
-        onSelectDt={onSelectDt}
-        onSelectFeeder={onSelectFeeder}
-        onSelectPole={onSelectPole}
-        onSelectIncident={onSelectIncident}
-        onRun={onRunSimulator}
-      />
-
-      <GridHealthPanel
-        network={network}
-        networkStats={networkStats}
-        incidents={activeIncidents}
-      />
     </section>
   );
 }
@@ -1484,13 +1490,6 @@ export function SimulatorDock({
         </label>
       </div>
 
-      <div className="simulator-context-grid">
-        <DetailMetric label="Selected Feeder" value={selectedFeederId ?? '—'} />
-        <DetailMetric label="Selected DT" value={selectedDtId ?? '—'} />
-        <DetailMetric label="Selected Pole" value={selectedPoleId ?? '—'} />
-        <DetailMetric label="Open Incidents" value={incidents.length} />
-      </div>
-
       <div className="simulator-actions">
         <SimulatorButton
           icon="⚡"
@@ -1536,57 +1535,11 @@ export function SimulatorDock({
 
       {result ? (
         <div className={`simulator-result ${result.tone}`}>
-          <div>
-            <p className="section-label">Recent Simulator Action</p>
-            <strong>{result.title}</strong>
-            <p>{result.message ?? summarizeSimulatorResult(result.result)}</p>
-          </div>
-          <SimulatorResultMetrics result={result.result} />
+          <strong>{result.title}</strong>
+          <p>{result.message ?? summarizeSimulatorResult(result.result)}</p>
         </div>
-      ) : (
-        <div className="simulator-result idle">
-          <p className="section-label">Recent Simulator Action</p>
-          <strong>Ready for controlled fault injection</strong>
-          <p>
-            Choose a feeder, DT, pole or incident, then run an action to inspect
-            generated telemetry and detection output here.
-          </p>
-        </div>
-      )}
+      ) : null}
     </section>
-  );
-}
-
-export function SimulatorResultMetrics({ result }) {
-  if (!result) {
-    return null;
-  }
-
-  const metrics = [
-    {
-      label: 'Telemetry Generated',
-      value: result.telemetry?.generatedEventCount ?? 0,
-    },
-    {
-      label: 'Affected Poles',
-      value: result.affectedPoleCount ?? '—',
-    },
-    {
-      label: 'Incident Candidates',
-      value: result.detection?.createdIncidentCount ?? 0,
-    },
-  ];
-
-  return (
-    <div className="simulator-result-grid">
-      {metrics.map((metric) => (
-        <DetailMetric
-          key={metric.label}
-          label={metric.label}
-          value={metric.value}
-        />
-      ))}
-    </div>
   );
 }
 
