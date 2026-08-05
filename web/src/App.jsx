@@ -1,12 +1,4 @@
-import {
-  createElement,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
-import * as Router from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { usePolling } from './hooks/usePolling.js';
 
@@ -366,9 +358,7 @@ export default function App() {
     setSelectedFeederId(feederId);
   }, []);
 
-  return createElement(
-    Router.HashRouter,
-    null,
+  return (
     <main className={`app ${theme}`}>
       <AmbientLighting />
 
@@ -385,99 +375,58 @@ export default function App() {
         networkLoading={networkPoll.loading}
       />
 
-      <Router.Routes>
-        <Router.Route
-          index
-          element={<Router.Navigate to="/dashboard" replace />}
-        />
-        <Router.Route
-          path="/dashboard"
-          element={
-            <DashboardView
-              network={network}
-              activeIncidents={activeIncidents}
-              selectedDetailIncident={selectedDetailIncident}
-              selectedIncidentPoles={selectedIncidentPoles}
-              selectedPoleId={selectedPoleId}
-              incidentsLoading={incidentsPoll.loading}
-              incidentsError={incidentsPoll.error}
-              incidentDetails={incidentDetails}
-              detailsLoading={detailsLoading}
-              actionLoading={actionLoading}
-              actionNotice={actionNotice}
-              dispatchLoading={dispatchLoading}
-              dispatchNotice={dispatchNotice}
-              crewNote={crewNote}
-              resolutionNote={resolutionNote}
-              onSelectIncident={setSelectedIncidentId}
-              onSelectPole={handleMapPoleSelect}
-              onCrewNoteChange={setCrewNote}
-              onResolutionNoteChange={setResolutionNote}
-              onAction={runWorkflowAction}
-              onRepair={() => runSimulatorAction('repair')}
-              onRegenerateDispatchNote={() =>
-                requestDispatchNote({ regenerate: true })
-              }
-            />
-          }
-        />
-        <Router.Route
-          path="/simulator"
-          element={
-            <SimulatorView
-              network={network}
-              activeIncidents={activeIncidents}
-              selectedDetailIncident={selectedDetailIncident}
-              selectedDtId={selectedDtId}
-              selectedFeederId={selectedFeederId}
-              selectedPoleId={selectedPoleId}
-              selectedIncidentId={selectedIncidentId}
-              selectedIncidentPoles={selectedIncidentPoles}
-              incidentsLoading={incidentsPoll.loading}
-              incidentsError={incidentsPoll.error}
-              simulatorLoading={simulatorLoading}
-              simulatorResult={simulatorResult}
-              onSelectDt={setSelectedDtId}
-              onSelectFeeder={setSelectedFeederId}
-              onSelectPole={setSelectedPoleId}
-              onMapPoleSelect={handleMapPoleSelect}
-              onSelectIncident={setSelectedIncidentId}
-              onRunSimulator={runSimulatorAction}
-            />
-          }
-        />
-        <Router.Route
-          path="/grid-health"
-          element={
-            <GridHealthView
-              network={network}
-              networkStats={networkStats}
-              activeIncidents={activeIncidents}
-              selectedDetailIncident={selectedDetailIncident}
-              selectedIncidentPoles={selectedIncidentPoles}
-              selectedPoleId={selectedPoleId}
-              incidentsLoading={incidentsPoll.loading}
-              incidentsError={incidentsPoll.error}
-              onSelectIncident={setSelectedIncidentId}
-              onSelectPole={handleMapPoleSelect}
-            />
-          }
-        />
-        <Router.Route
-          path="*"
-          element={<Router.Navigate to="/dashboard" replace />}
-        />
-      </Router.Routes>
-    </main>,
+      <OperatorConsole
+        network={network}
+        networkStats={networkStats}
+        activeIncidents={activeIncidents}
+        selectedDetailIncident={selectedDetailIncident}
+        selectedIncidentId={selectedIncidentId}
+        selectedIncidentPoles={selectedIncidentPoles}
+        selectedPoleId={selectedPoleId}
+        selectedDtId={selectedDtId}
+        selectedFeederId={selectedFeederId}
+        incidentsLoading={incidentsPoll.loading}
+        incidentsError={incidentsPoll.error}
+        incidentDetails={incidentDetails}
+        detailsLoading={detailsLoading}
+        actionLoading={actionLoading}
+        actionNotice={actionNotice}
+        dispatchLoading={dispatchLoading}
+        dispatchNotice={dispatchNotice}
+        crewNote={crewNote}
+        resolutionNote={resolutionNote}
+        simulatorLoading={simulatorLoading}
+        simulatorResult={simulatorResult}
+        onSelectIncident={setSelectedIncidentId}
+        onSelectPole={setSelectedPoleId}
+        onMapPoleSelect={handleMapPoleSelect}
+        onSelectDt={setSelectedDtId}
+        onSelectFeeder={setSelectedFeederId}
+        onCrewNoteChange={setCrewNote}
+        onResolutionNoteChange={setResolutionNote}
+        onAction={runWorkflowAction}
+        onRepair={() => runSimulatorAction('repair')}
+        onRegenerateDispatchNote={() =>
+          requestDispatchNote({ regenerate: true })
+        }
+        onRunSimulator={runSimulatorAction}
+      />
+    </main>
   );
 }
 
-export function DashboardView({
+const CONSOLE_SECTIONS = ['dashboard', 'simulator', 'grid-health'];
+
+export function OperatorConsole({
   network,
+  networkStats,
   activeIncidents,
   selectedDetailIncident,
+  selectedIncidentId,
   selectedIncidentPoles,
   selectedPoleId,
+  selectedDtId,
+  selectedFeederId,
   incidentsLoading,
   incidentsError,
   incidentDetails,
@@ -488,77 +437,67 @@ export function DashboardView({
   dispatchNotice,
   crewNote,
   resolutionNote,
+  simulatorLoading,
+  simulatorResult,
   onSelectIncident,
   onSelectPole,
+  onMapPoleSelect,
+  onSelectDt,
+  onSelectFeeder,
   onCrewNoteChange,
   onResolutionNoteChange,
   onAction,
   onRepair,
   onRegenerateDispatchNote,
-}) {
-  return (
-    <section className="workspace dashboard-workspace">
-      <IncidentRail
-        incidents={activeIncidents}
-        selectedIncidentId={selectedDetailIncident?.id}
-        loading={incidentsLoading}
-        error={incidentsError}
-        onSelectIncident={onSelectIncident}
-      />
-
-      <OperationsMap
-        network={network}
-        incidents={activeIncidents}
-        selectedIncident={selectedDetailIncident}
-        selectedIncidentPoles={selectedIncidentPoles}
-        selectedPoleId={selectedPoleId}
-        onSelectIncident={onSelectIncident}
-        onSelectPole={onSelectPole}
-      />
-
-      <IncidentDetailPanel
-        incident={selectedDetailIncident}
-        incidentPoles={selectedIncidentPoles}
-        incidentEvents={incidentDetails?.incidentEvents ?? []}
-        loading={detailsLoading}
-        actionLoading={actionLoading}
-        actionNotice={actionNotice}
-        dispatchLoading={dispatchLoading}
-        dispatchNotice={dispatchNotice}
-        crewNote={crewNote}
-        resolutionNote={resolutionNote}
-        onCrewNoteChange={onCrewNoteChange}
-        onResolutionNoteChange={onResolutionNoteChange}
-        onAction={onAction}
-        onRepair={onRepair}
-        onRegenerateDispatchNote={onRegenerateDispatchNote}
-      />
-    </section>
-  );
-}
-
-export function SimulatorView({
-  network,
-  activeIncidents,
-  selectedDetailIncident,
-  selectedDtId,
-  selectedFeederId,
-  selectedPoleId,
-  selectedIncidentId,
-  selectedIncidentPoles,
-  incidentsLoading,
-  incidentsError,
-  simulatorLoading,
-  simulatorResult,
-  onSelectDt,
-  onSelectFeeder,
-  onSelectPole,
-  onMapPoleSelect,
-  onSelectIncident,
   onRunSimulator,
 }) {
   return (
-    <section className="workspace route-workspace simulator-workspace">
+    <section className="console-shell" id="dashboard">
+      <ConsoleHashScroller />
+
+      <ConsoleSummary
+        activeIncidentCount={activeIncidents.length}
+        networkStats={networkStats}
+      />
+
+      <section className="workspace dashboard-workspace">
+        <IncidentRail
+          incidents={activeIncidents}
+          selectedIncidentId={selectedDetailIncident?.id}
+          loading={incidentsLoading}
+          error={incidentsError}
+          onSelectIncident={onSelectIncident}
+        />
+
+        <OperationsMap
+          network={network}
+          incidents={activeIncidents}
+          selectedIncident={selectedDetailIncident}
+          selectedIncidentPoles={selectedIncidentPoles}
+          selectedPoleId={selectedPoleId}
+          onSelectIncident={onSelectIncident}
+          onSelectPole={onMapPoleSelect}
+        />
+
+        <IncidentDetailPanel
+          incident={selectedDetailIncident}
+          incidentPoles={selectedIncidentPoles}
+          incidentEvents={incidentDetails?.incidentEvents ?? []}
+          loading={detailsLoading}
+          actionLoading={actionLoading}
+          actionNotice={actionNotice}
+          dispatchLoading={dispatchLoading}
+          dispatchNotice={dispatchNotice}
+          crewNote={crewNote}
+          resolutionNote={resolutionNote}
+          onCrewNoteChange={onCrewNoteChange}
+          onResolutionNoteChange={onResolutionNoteChange}
+          onAction={onAction}
+          onRepair={onRepair}
+          onRegenerateDispatchNote={onRegenerateDispatchNote}
+        />
+      </section>
+
       <SimulatorDock
         network={network}
         incidents={activeIncidents}
@@ -575,65 +514,91 @@ export function SimulatorView({
         onRun={onRunSimulator}
       />
 
-      <OperationsMap
-        network={network}
-        incidents={activeIncidents}
-        selectedIncident={selectedDetailIncident}
-        selectedIncidentPoles={selectedIncidentPoles}
-        selectedPoleId={selectedPoleId}
-        onSelectIncident={onSelectIncident}
-        onSelectPole={onMapPoleSelect}
-      />
-
-      <IncidentRail
-        incidents={activeIncidents}
-        selectedIncidentId={selectedDetailIncident?.id}
-        loading={incidentsLoading}
-        error={incidentsError}
-        onSelectIncident={onSelectIncident}
-      />
-    </section>
-  );
-}
-
-export function GridHealthView({
-  network,
-  networkStats,
-  activeIncidents,
-  selectedDetailIncident,
-  selectedIncidentPoles,
-  selectedPoleId,
-  incidentsLoading,
-  incidentsError,
-  onSelectIncident,
-  onSelectPole,
-}) {
-  return (
-    <section className="workspace route-workspace grid-health-workspace">
       <GridHealthPanel
         network={network}
         networkStats={networkStats}
         incidents={activeIncidents}
       />
+    </section>
+  );
+}
 
-      <OperationsMap
-        network={network}
-        incidents={activeIncidents}
-        selectedIncident={selectedDetailIncident}
-        selectedIncidentPoles={selectedIncidentPoles}
-        selectedPoleId={selectedPoleId}
-        onSelectIncident={onSelectIncident}
-        onSelectPole={onSelectPole}
+export function ConsoleHashScroller() {
+  useEffect(() => {
+    function scrollToHash() {
+      const sectionId = getActiveHashSection();
+      window.requestAnimationFrame(() => {
+        const section = document.getElementById(sectionId);
+
+        if (!section) {
+          return;
+        }
+
+        if (sectionId === 'dashboard') {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+
+    scrollToHash();
+    window.addEventListener('hashchange', scrollToHash);
+
+    return () => window.removeEventListener('hashchange', scrollToHash);
+  }, []);
+
+  return null;
+}
+
+export function ConsoleSummary({ activeIncidentCount, networkStats }) {
+  const livePercent =
+    networkStats.totalDevices > 0
+      ? Math.round((networkStats.liveDevices / networkStats.totalDevices) * 100)
+      : 0;
+
+  return (
+    <section className="summary-grid" aria-label="Grid summary">
+      <SummaryCard
+        label="Active Incidents"
+        value={activeIncidentCount}
+        tone={activeIncidentCount > 0 ? 'danger' : 'success'}
+        detail="Open events requiring operator attention"
       />
-
-      <IncidentRail
-        incidents={activeIncidents}
-        selectedIncidentId={selectedDetailIncident?.id}
-        loading={incidentsLoading}
-        error={incidentsError}
-        onSelectIncident={onSelectIncident}
+      <SummaryCard
+        label="Health"
+        value={`${livePercent}%`}
+        tone={livePercent > 95 ? 'success' : 'warning'}
+        detail={`${networkStats.liveDevices}/${networkStats.totalDevices} reporting live`}
+      />
+      <SummaryCard
+        label="Dark Devices"
+        value={networkStats.darkDevices}
+        tone={networkStats.darkDevices > 0 ? 'danger' : 'success'}
+        detail="Currently reporting de-energized"
+      />
+      <SummaryCard
+        label="No Sensor"
+        value={networkStats.noSensorPoles}
+        detail="Poles without live telemetry devices"
+      />
+      <SummaryCard
+        label="Last Telemetry"
+        value={formatRelativeTime(networkStats.lastTelemetryAt)}
+        detail="Most recent device heartbeat"
       />
     </section>
+  );
+}
+
+export function SummaryCard({ label, value, detail, tone = 'neutral' }) {
+  return (
+    <article className={`summary-card ${tone}`}>
+      <p className="eyebrow">{label}</p>
+      <strong>{value}</strong>
+      <span>{detail}</span>
+    </article>
   );
 }
 
@@ -657,6 +622,8 @@ export function TopNavigation({
   incidentsLoading,
   networkLoading,
 }) {
+  const activeSection = useActiveHashSection();
+
   return (
     <header className="top-nav glass-panel">
       <div className="brand-lockup">
@@ -668,9 +635,15 @@ export function TopNavigation({
       </div>
 
       <nav className="nav-pills" aria-label="Primary">
-        <Router.NavLink to="/dashboard">Dashboard</Router.NavLink>
-        <Router.NavLink to="/simulator">Simulator</Router.NavLink>
-        <Router.NavLink to="/grid-health">Grid Health</Router.NavLink>
+        <HashTab href="#dashboard" active={activeSection === 'dashboard'}>
+          Dashboard
+        </HashTab>
+        <HashTab href="#simulator" active={activeSection === 'simulator'}>
+          Simulator
+        </HashTab>
+        <HashTab href="#grid-health" active={activeSection === 'grid-health'}>
+          Grid Health
+        </HashTab>
       </nav>
 
       <div className="nav-metrics">
@@ -696,6 +669,14 @@ export function TopNavigation({
         {theme === 'dark' ? 'Dark' : 'Light'}
       </button>
     </header>
+  );
+}
+
+export function HashTab({ href, active, children }) {
+  return (
+    <a className={active ? 'active' : ''} href={href}>
+      {children}
+    </a>
   );
 }
 
@@ -1008,7 +989,7 @@ export function OperationsMap({
   }, [selectedIncident?.id, selectedIncident?.lat, selectedIncident?.lon]);
 
   return (
-    <section className="map-shell" id="dashboard">
+    <section className="map-shell" id="distribution-map">
       <div className="map-chrome">
         <div>
           <p className="eyebrow">Live distribution map</p>
@@ -1503,6 +1484,13 @@ export function SimulatorDock({
         </label>
       </div>
 
+      <div className="simulator-context-grid">
+        <DetailMetric label="Selected Feeder" value={selectedFeederId ?? '—'} />
+        <DetailMetric label="Selected DT" value={selectedDtId ?? '—'} />
+        <DetailMetric label="Selected Pole" value={selectedPoleId ?? '—'} />
+        <DetailMetric label="Open Incidents" value={incidents.length} />
+      </div>
+
       <div className="simulator-actions">
         <SimulatorButton
           icon="⚡"
@@ -1548,11 +1536,57 @@ export function SimulatorDock({
 
       {result ? (
         <div className={`simulator-result ${result.tone}`}>
-          <strong>{result.title}</strong>
-          <p>{result.message ?? summarizeSimulatorResult(result.result)}</p>
+          <div>
+            <p className="section-label">Recent Simulator Action</p>
+            <strong>{result.title}</strong>
+            <p>{result.message ?? summarizeSimulatorResult(result.result)}</p>
+          </div>
+          <SimulatorResultMetrics result={result.result} />
         </div>
-      ) : null}
+      ) : (
+        <div className="simulator-result idle">
+          <p className="section-label">Recent Simulator Action</p>
+          <strong>Ready for controlled fault injection</strong>
+          <p>
+            Choose a feeder, DT, pole or incident, then run an action to inspect
+            generated telemetry and detection output here.
+          </p>
+        </div>
+      )}
     </section>
+  );
+}
+
+export function SimulatorResultMetrics({ result }) {
+  if (!result) {
+    return null;
+  }
+
+  const metrics = [
+    {
+      label: 'Telemetry Generated',
+      value: result.telemetry?.generatedEventCount ?? 0,
+    },
+    {
+      label: 'Affected Poles',
+      value: result.affectedPoleCount ?? '—',
+    },
+    {
+      label: 'Incident Candidates',
+      value: result.detection?.createdIncidentCount ?? 0,
+    },
+  ];
+
+  return (
+    <div className="simulator-result-grid">
+      {metrics.map((metric) => (
+        <DetailMetric
+          key={metric.label}
+          label={metric.label}
+          value={metric.value}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -1718,6 +1752,28 @@ function sortIncidents(incidents) {
 
     return new Date(right.detectedAt) - new Date(left.detectedAt);
   });
+}
+
+function useActiveHashSection() {
+  const [activeSection, setActiveSection] = useState(getActiveHashSection);
+
+  useEffect(() => {
+    function syncActiveSection() {
+      setActiveSection(getActiveHashSection());
+    }
+
+    window.addEventListener('hashchange', syncActiveSection);
+
+    return () => window.removeEventListener('hashchange', syncActiveSection);
+  }, []);
+
+  return activeSection;
+}
+
+function getActiveHashSection() {
+  const hash = window.location.hash.replace('#', '');
+
+  return CONSOLE_SECTIONS.includes(hash) ? hash : 'dashboard';
 }
 
 function buildNetworkStats(network) {
