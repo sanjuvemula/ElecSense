@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  createElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import * as Router from 'react-router-dom';
 
 import { usePolling } from './hooks/usePolling.js';
 
@@ -358,7 +366,9 @@ export default function App() {
     setSelectedFeederId(feederId);
   }, []);
 
-  return (
+  return createElement(
+    Router.HashRouter,
+    null,
     <main className={`app ${theme}`}>
       <AmbientLighting />
 
@@ -375,62 +385,255 @@ export default function App() {
         networkLoading={networkPoll.loading}
       />
 
-      <section className="workspace">
-        <OperationsMap
-          network={network}
-          incidents={activeIncidents}
-          selectedIncident={selectedDetailIncident}
-          selectedIncidentPoles={selectedIncidentPoles}
-          selectedPoleId={selectedPoleId}
-          onSelectIncident={setSelectedIncidentId}
-          onSelectPole={handleMapPoleSelect}
+      <Router.Routes>
+        <Router.Route
+          index
+          element={<Router.Navigate to="/dashboard" replace />}
         />
-
-        <IncidentRail
-          incidents={activeIncidents}
-          selectedIncidentId={selectedDetailIncident?.id}
-          loading={incidentsPoll.loading}
-          error={incidentsPoll.error}
-          onSelectIncident={setSelectedIncidentId}
-        />
-
-        <IncidentDetailPanel
-          incident={selectedDetailIncident}
-          incidentPoles={selectedIncidentPoles}
-          incidentEvents={incidentDetails?.incidentEvents ?? []}
-          loading={detailsLoading}
-          actionLoading={actionLoading}
-          actionNotice={actionNotice}
-          dispatchLoading={dispatchLoading}
-          dispatchNotice={dispatchNotice}
-          crewNote={crewNote}
-          resolutionNote={resolutionNote}
-          onCrewNoteChange={setCrewNote}
-          onResolutionNoteChange={setResolutionNote}
-          onAction={runWorkflowAction}
-          onRepair={() => runSimulatorAction('repair')}
-          onRegenerateDispatchNote={() =>
-            requestDispatchNote({ regenerate: true })
+        <Router.Route
+          path="/dashboard"
+          element={
+            <DashboardView
+              network={network}
+              activeIncidents={activeIncidents}
+              selectedDetailIncident={selectedDetailIncident}
+              selectedIncidentPoles={selectedIncidentPoles}
+              selectedPoleId={selectedPoleId}
+              incidentsLoading={incidentsPoll.loading}
+              incidentsError={incidentsPoll.error}
+              incidentDetails={incidentDetails}
+              detailsLoading={detailsLoading}
+              actionLoading={actionLoading}
+              actionNotice={actionNotice}
+              dispatchLoading={dispatchLoading}
+              dispatchNotice={dispatchNotice}
+              crewNote={crewNote}
+              resolutionNote={resolutionNote}
+              onSelectIncident={setSelectedIncidentId}
+              onSelectPole={handleMapPoleSelect}
+              onCrewNoteChange={setCrewNote}
+              onResolutionNoteChange={setResolutionNote}
+              onAction={runWorkflowAction}
+              onRepair={() => runSimulatorAction('repair')}
+              onRegenerateDispatchNote={() =>
+                requestDispatchNote({ regenerate: true })
+              }
+            />
           }
         />
-
-        <SimulatorDock
-          network={network}
-          incidents={activeIncidents}
-          selectedDtId={selectedDtId}
-          selectedFeederId={selectedFeederId}
-          selectedPoleId={selectedPoleId}
-          selectedIncidentId={selectedDetailIncident?.id ?? selectedIncidentId}
-          loading={simulatorLoading}
-          result={simulatorResult}
-          onSelectDt={setSelectedDtId}
-          onSelectFeeder={setSelectedFeederId}
-          onSelectPole={setSelectedPoleId}
-          onSelectIncident={setSelectedIncidentId}
-          onRun={runSimulatorAction}
+        <Router.Route
+          path="/simulator"
+          element={
+            <SimulatorView
+              network={network}
+              activeIncidents={activeIncidents}
+              selectedDetailIncident={selectedDetailIncident}
+              selectedDtId={selectedDtId}
+              selectedFeederId={selectedFeederId}
+              selectedPoleId={selectedPoleId}
+              selectedIncidentId={selectedIncidentId}
+              selectedIncidentPoles={selectedIncidentPoles}
+              incidentsLoading={incidentsPoll.loading}
+              incidentsError={incidentsPoll.error}
+              simulatorLoading={simulatorLoading}
+              simulatorResult={simulatorResult}
+              onSelectDt={setSelectedDtId}
+              onSelectFeeder={setSelectedFeederId}
+              onSelectPole={setSelectedPoleId}
+              onMapPoleSelect={handleMapPoleSelect}
+              onSelectIncident={setSelectedIncidentId}
+              onRunSimulator={runSimulatorAction}
+            />
+          }
         />
-      </section>
-    </main>
+        <Router.Route
+          path="/grid-health"
+          element={
+            <GridHealthView
+              network={network}
+              networkStats={networkStats}
+              activeIncidents={activeIncidents}
+              selectedDetailIncident={selectedDetailIncident}
+              selectedIncidentPoles={selectedIncidentPoles}
+              selectedPoleId={selectedPoleId}
+              incidentsLoading={incidentsPoll.loading}
+              incidentsError={incidentsPoll.error}
+              onSelectIncident={setSelectedIncidentId}
+              onSelectPole={handleMapPoleSelect}
+            />
+          }
+        />
+        <Router.Route
+          path="*"
+          element={<Router.Navigate to="/dashboard" replace />}
+        />
+      </Router.Routes>
+    </main>,
+  );
+}
+
+export function DashboardView({
+  network,
+  activeIncidents,
+  selectedDetailIncident,
+  selectedIncidentPoles,
+  selectedPoleId,
+  incidentsLoading,
+  incidentsError,
+  incidentDetails,
+  detailsLoading,
+  actionLoading,
+  actionNotice,
+  dispatchLoading,
+  dispatchNotice,
+  crewNote,
+  resolutionNote,
+  onSelectIncident,
+  onSelectPole,
+  onCrewNoteChange,
+  onResolutionNoteChange,
+  onAction,
+  onRepair,
+  onRegenerateDispatchNote,
+}) {
+  return (
+    <section className="workspace dashboard-workspace">
+      <IncidentRail
+        incidents={activeIncidents}
+        selectedIncidentId={selectedDetailIncident?.id}
+        loading={incidentsLoading}
+        error={incidentsError}
+        onSelectIncident={onSelectIncident}
+      />
+
+      <OperationsMap
+        network={network}
+        incidents={activeIncidents}
+        selectedIncident={selectedDetailIncident}
+        selectedIncidentPoles={selectedIncidentPoles}
+        selectedPoleId={selectedPoleId}
+        onSelectIncident={onSelectIncident}
+        onSelectPole={onSelectPole}
+      />
+
+      <IncidentDetailPanel
+        incident={selectedDetailIncident}
+        incidentPoles={selectedIncidentPoles}
+        incidentEvents={incidentDetails?.incidentEvents ?? []}
+        loading={detailsLoading}
+        actionLoading={actionLoading}
+        actionNotice={actionNotice}
+        dispatchLoading={dispatchLoading}
+        dispatchNotice={dispatchNotice}
+        crewNote={crewNote}
+        resolutionNote={resolutionNote}
+        onCrewNoteChange={onCrewNoteChange}
+        onResolutionNoteChange={onResolutionNoteChange}
+        onAction={onAction}
+        onRepair={onRepair}
+        onRegenerateDispatchNote={onRegenerateDispatchNote}
+      />
+    </section>
+  );
+}
+
+export function SimulatorView({
+  network,
+  activeIncidents,
+  selectedDetailIncident,
+  selectedDtId,
+  selectedFeederId,
+  selectedPoleId,
+  selectedIncidentId,
+  selectedIncidentPoles,
+  incidentsLoading,
+  incidentsError,
+  simulatorLoading,
+  simulatorResult,
+  onSelectDt,
+  onSelectFeeder,
+  onSelectPole,
+  onMapPoleSelect,
+  onSelectIncident,
+  onRunSimulator,
+}) {
+  return (
+    <section className="workspace route-workspace simulator-workspace">
+      <SimulatorDock
+        network={network}
+        incidents={activeIncidents}
+        selectedDtId={selectedDtId}
+        selectedFeederId={selectedFeederId}
+        selectedPoleId={selectedPoleId}
+        selectedIncidentId={selectedDetailIncident?.id ?? selectedIncidentId}
+        loading={simulatorLoading}
+        result={simulatorResult}
+        onSelectDt={onSelectDt}
+        onSelectFeeder={onSelectFeeder}
+        onSelectPole={onSelectPole}
+        onSelectIncident={onSelectIncident}
+        onRun={onRunSimulator}
+      />
+
+      <OperationsMap
+        network={network}
+        incidents={activeIncidents}
+        selectedIncident={selectedDetailIncident}
+        selectedIncidentPoles={selectedIncidentPoles}
+        selectedPoleId={selectedPoleId}
+        onSelectIncident={onSelectIncident}
+        onSelectPole={onMapPoleSelect}
+      />
+
+      <IncidentRail
+        incidents={activeIncidents}
+        selectedIncidentId={selectedDetailIncident?.id}
+        loading={incidentsLoading}
+        error={incidentsError}
+        onSelectIncident={onSelectIncident}
+      />
+    </section>
+  );
+}
+
+export function GridHealthView({
+  network,
+  networkStats,
+  activeIncidents,
+  selectedDetailIncident,
+  selectedIncidentPoles,
+  selectedPoleId,
+  incidentsLoading,
+  incidentsError,
+  onSelectIncident,
+  onSelectPole,
+}) {
+  return (
+    <section className="workspace route-workspace grid-health-workspace">
+      <GridHealthPanel
+        network={network}
+        networkStats={networkStats}
+        incidents={activeIncidents}
+      />
+
+      <OperationsMap
+        network={network}
+        incidents={activeIncidents}
+        selectedIncident={selectedDetailIncident}
+        selectedIncidentPoles={selectedIncidentPoles}
+        selectedPoleId={selectedPoleId}
+        onSelectIncident={onSelectIncident}
+        onSelectPole={onSelectPole}
+      />
+
+      <IncidentRail
+        incidents={activeIncidents}
+        selectedIncidentId={selectedDetailIncident?.id}
+        loading={incidentsLoading}
+        error={incidentsError}
+        onSelectIncident={onSelectIncident}
+      />
+    </section>
   );
 }
 
@@ -465,9 +668,9 @@ export function TopNavigation({
       </div>
 
       <nav className="nav-pills" aria-label="Primary">
-        <a href="#dashboard">Dashboard</a>
-        <a href="#simulator">Simulator</a>
-        <a href="#grid-health">Grid Health</a>
+        <Router.NavLink to="/dashboard">Dashboard</Router.NavLink>
+        <Router.NavLink to="/simulator">Simulator</Router.NavLink>
+        <Router.NavLink to="/grid-health">Grid Health</Router.NavLink>
       </nav>
 
       <div className="nav-metrics">
@@ -712,14 +915,17 @@ export function OperationsMap({
       }
 
       const selected = incident.id === selectedIncident?.id;
-      const marker = L.circleMarker([Number(incident.lat), Number(incident.lon)], {
-        radius: selected ? 18 : 9,
-        color: getStatusColor(incident.status),
-        weight: selected ? 3 : 1.5,
-        fillColor: getStatusColor(incident.status),
-        fillOpacity: selected ? 0.28 : 0.14,
-        opacity: selected ? 1 : 0.74,
-      });
+      const marker = L.circleMarker(
+        [Number(incident.lat), Number(incident.lon)],
+        {
+          radius: selected ? 18 : 9,
+          color: getStatusColor(incident.status),
+          weight: selected ? 3 : 1.5,
+          fillColor: getStatusColor(incident.status),
+          fillOpacity: selected ? 0.28 : 0.14,
+          opacity: selected ? 1 : 0.74,
+        },
+      );
 
       marker.on('click', () => onSelectIncident(incident.id));
       marker.addTo(layers.incidents);
@@ -881,7 +1087,9 @@ export function IncidentRail({
           >
             <div className="card-row">
               <StatusPill status={incident.status} />
-              <span className="confidence">{toPercent(incident.confidence)}</span>
+              <span className="confidence">
+                {toPercent(incident.confidence)}
+              </span>
             </div>
             <h3>{formatIncidentType(incident.type)}</h3>
             <div className="incident-card-grid">
@@ -971,7 +1179,8 @@ export function IncidentDetailPanel({
               <span className="section-icon">⌖</span>
               <p>Location</p>
               <strong>
-                {incident.dtId ?? incident.feederId} · {incident.pincode ?? 'No pincode'}
+                {incident.dtId ?? incident.feederId} ·{' '}
+                {incident.pincode ?? 'No pincode'}
               </strong>
             </div>
             <div>
@@ -985,7 +1194,10 @@ export function IncidentDetailPanel({
               label="Affected Poles"
               value={incident.affectedPoleCount}
             />
-            <DetailMetric label="Confidence" value={toPercent(incident.confidence)} />
+            <DetailMetric
+              label="Confidence"
+              value={toPercent(incident.confidence)}
+            />
             <DetailMetric
               label="Topology"
               value={capitalize(incident.topologySource)}
@@ -1142,6 +1354,66 @@ export function DetailMetric({ label, value }) {
   );
 }
 
+export function GridHealthPanel({ network, networkStats, incidents }) {
+  const feederSummaries = useMemo(
+    () => buildFeederSummaries(network, incidents),
+    [incidents, network],
+  );
+  const dtCount = network?.dts?.length ?? 0;
+  const livePercent =
+    networkStats.totalDevices > 0
+      ? Math.round((networkStats.liveDevices / networkStats.totalDevices) * 100)
+      : 0;
+
+  return (
+    <aside className="grid-health-panel glass-panel" id="grid-health">
+      <div className="detail-hero">
+        <div>
+          <p className="eyebrow">Grid Health</p>
+          <h2>Feeder Telemetry Status</h2>
+        </div>
+        <span className="engineering-chip">{livePercent}% Live</span>
+      </div>
+
+      <section className="metric-grid health-metric-grid">
+        <DetailMetric label="Feeders" value={network?.feeders?.length ?? 0} />
+        <DetailMetric label="Transformers" value={dtCount} />
+        <DetailMetric label="Live Devices" value={networkStats.liveDevices} />
+        <DetailMetric label="Dark Devices" value={networkStats.darkDevices} />
+        <DetailMetric label="No Sensor" value={networkStats.noSensorPoles} />
+        <DetailMetric
+          label="Last Telemetry"
+          value={formatRelativeTime(networkStats.lastTelemetryAt)}
+        />
+      </section>
+
+      <section className="detail-section feeder-health-card">
+        <div className="section-title-row">
+          <p className="section-label">Feeder Breakdown</p>
+          <span>{feederSummaries.length} feeders</span>
+        </div>
+
+        <div className="feeder-health-list">
+          {feederSummaries.map((feeder) => (
+            <div className="feeder-health-row" key={feeder.feederId}>
+              <div>
+                <strong>{feeder.feederId}</strong>
+                <p>
+                  {feeder.liveDevices}/{feeder.deviceCount} live devices ·{' '}
+                  {feeder.poleCount} poles
+                </p>
+              </div>
+              <span className={feeder.activeIncidents > 0 ? 'alert' : ''}>
+                {feeder.activeIncidents} active
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </aside>
+  );
+}
+
 export function SimulatorDock({
   network,
   incidents,
@@ -1223,7 +1495,8 @@ export function SimulatorDock({
           >
             {incidents.map((incident) => (
               <option key={incident.id} value={incident.id}>
-                {formatIncidentType(incident.type)} · {STATUS_META[incident.status]?.label}
+                {formatIncidentType(incident.type)} ·{' '}
+                {STATUS_META[incident.status]?.label}
               </option>
             ))}
           </select>
@@ -1283,7 +1556,14 @@ export function SimulatorDock({
   );
 }
 
-export function SimulatorButton({ icon, label, kind, loading, disabled, onRun }) {
+export function SimulatorButton({
+  icon,
+  label,
+  kind,
+  loading,
+  disabled,
+  onRun,
+}) {
   const active = loading === kind;
 
   return (
@@ -1411,8 +1691,7 @@ async function fetchJson(path, options = {}) {
   const response = await fetch(path, {
     method: options.method ?? 'GET',
     headers: API_HEADERS,
-    body:
-      options.body === undefined ? undefined : JSON.stringify(options.body),
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   const text = await response.text();
   const payload = text ? JSON.parse(text) : {};
@@ -1456,11 +1735,49 @@ function buildNetworkStats(network) {
     totalPoles: poles.length,
     totalDevices: devicePoles.length,
     liveDevices,
-    darkDevices: devicePoles.filter((pole) => pole.current?.lastState === 'dark')
-      .length,
+    darkDevices: devicePoles.filter(
+      (pole) => pole.current?.lastState === 'dark',
+    ).length,
     noSensorPoles: poles.length - devicePoles.length,
     lastTelemetryAt,
   };
+}
+
+function buildFeederSummaries(network, incidents) {
+  const poles = network?.poles ?? [];
+  const activeIncidentsByFeeder = new Map();
+
+  for (const incident of incidents ?? []) {
+    if (!incident.feederId) {
+      continue;
+    }
+
+    activeIncidentsByFeeder.set(
+      incident.feederId,
+      (activeIncidentsByFeeder.get(incident.feederId) ?? 0) + 1,
+    );
+  }
+
+  return (network?.feeders ?? [])
+    .map((feeder) => {
+      const feederPoles = poles.filter(
+        (pole) => pole.feederId === feeder.feederId,
+      );
+      const feederDevices = feederPoles.filter(
+        (pole) => pole.current?.deviceId,
+      );
+
+      return {
+        feederId: feeder.feederId,
+        poleCount: feederPoles.length,
+        deviceCount: feederDevices.length,
+        liveDevices: feederDevices.filter(
+          (pole) => getPoleState(pole) === 'live',
+        ).length,
+        activeIncidents: activeIncidentsByFeeder.get(feeder.feederId) ?? 0,
+      };
+    })
+    .sort((left, right) => compareIds(left.feederId, right.feederId));
 }
 
 function getPolesForDt(network, dtId) {
