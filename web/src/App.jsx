@@ -50,6 +50,13 @@ const INCIDENT_TYPE_LABELS = {
   sensor_fault: 'Sensor Fault',
 };
 
+const SIMULATOR_ACTIONABLE_STATUSES = new Set([
+  'detected',
+  'acknowledged',
+  'crew_assigned',
+  'resolved',
+]);
+
 const API_HEADERS = {
   'Content-Type': 'application/json',
 };
@@ -1431,6 +1438,15 @@ export function SimulatorDock({
     () => (network && selectedDtId ? getPolesForDt(network, selectedDtId) : []),
     [network, selectedDtId],
   );
+  const actionableIncidents = useMemo(
+    () => buildSimulatorIncidentOptions(incidents),
+    [incidents],
+  );
+  const selectedActionableIncidentId = actionableIncidents.some(
+    (incident) => incident.id === selectedIncidentId,
+  )
+    ? selectedIncidentId
+    : '';
 
   return (
     <section className="simulator-dock glass-panel" id="simulator">
@@ -1539,12 +1555,17 @@ export function SimulatorDock({
             <label>
               Incident
               <select
-                value={selectedIncidentId ?? ''}
+                value={selectedActionableIncidentId}
                 onChange={(event) => onSelectIncident(event.target.value)}
               >
-                {incidents.map((incident) => (
+                <option value="" disabled>
+                  Select actionable incident
+                </option>
+                {actionableIncidents.map((incident) => (
                   <option key={incident.id} value={incident.id}>
+                    {formatIncidentCode(incident)} ·{' '}
                     {formatIncidentType(incident.type)} ·{' '}
+                    {incident.dtId ?? incident.feederId ?? 'Grid'} ·{' '}
                     {STATUS_META[incident.status]?.label}
                   </option>
                 ))}
@@ -1558,7 +1579,7 @@ export function SimulatorDock({
               label="Repair"
               kind="repair"
               loading={loading}
-              disabled={!selectedIncidentId}
+              disabled={!selectedActionableIncidentId}
               onRun={onRun}
             />
           </div>
@@ -1737,6 +1758,56 @@ function sortIncidents(incidents) {
 
     return new Date(right.detectedAt) - new Date(left.detectedAt);
   });
+}
+
+function buildSimulatorIncidentOptions(incidents) {
+  const incidentList = incidents ?? [];
+  const incidentCodes = buildIncidentCodeMap(incidentList);
+
+  return incidentList
+    .filter((incident) => SIMULATOR_ACTIONABLE_STATUSES.has(incident.status))
+    .map((incident) => ({
+      ...incident,
+      simulatorIncidentCode: incidentCodes.get(incident.id),
+    }))
+    .sort((left, right) => {
+      const leftPriority = STATUS_META[left.status]?.priority ?? 99;
+      const rightPriority = STATUS_META[right.status]?.priority ?? 99;
+
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
+
+      return new Date(left.detectedAt) - new Date(right.detectedAt);
+    });
+}
+
+function buildIncidentCodeMap(incidents) {
+  const incidentList = incidents ?? [];
+
+  return new Map(
+    [...incidentList]
+      .sort(
+        (left, right) => new Date(left.detectedAt) - new Date(right.detectedAt),
+      )
+      .map((incident, index) => [
+        incident.id,
+        formatIncidentOrdinal(index + 1),
+      ]),
+  );
+}
+
+function formatIncidentCode(incident) {
+  return (
+    incident.incidentCode ??
+    incident.code ??
+    incident.simulatorIncidentCode ??
+    'INC-???'
+  );
+}
+
+function formatIncidentOrdinal(value) {
+  return `INC-${String(value).padStart(3, '0')}`;
 }
 
 function buildOperatorTimeline(events, incident) {
