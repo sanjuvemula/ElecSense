@@ -1114,6 +1114,10 @@ export function IncidentDetailPanel({
   const statusMeta = incident ? STATUS_META[incident.status] : null;
   const showCrewNote = incident?.status === 'acknowledged';
   const showResolutionNote = incident?.status === 'crew_assigned';
+  const timelineEvents = useMemo(
+    () => buildOperatorTimeline(incidentEvents, incident),
+    [incident, incidentEvents],
+  );
 
   return (
     <aside className="detail-panel glass-panel">
@@ -1231,18 +1235,25 @@ export function IncidentDetailPanel({
           <section className="detail-section">
             <div className="section-title-row">
               <p className="section-label">Incident Timeline</p>
-              <span>{incidentEvents.length} events</span>
+              <span>{timelineEvents.length} milestones</span>
             </div>
             <div className="timeline">
-              {incidentEvents.length === 0 ? (
+              {timelineEvents.length === 0 ? (
                 <p className="muted">No timeline events loaded yet.</p>
               ) : (
-                incidentEvents.map((event) => (
+                timelineEvents.map((event) => (
                   <div className="timeline-item" key={event.id}>
                     <span />
                     <div>
-                      <strong>{formatEventType(event.eventType)}</strong>
+                      <strong>{event.label}</strong>
                       <p>{formatRelativeTime(event.createdAt)}</p>
+                      {event.details.length > 0 ? (
+                        <div className="timeline-details">
+                          {event.details.map((detail, index) => (
+                            <small key={`${detail}-${index}`}>{detail}</small>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ))
@@ -1431,106 +1442,127 @@ export function SimulatorDock({
         <span className="engineering-chip">Live API Path</span>
       </div>
 
-      <div className="simulator-selects">
-        <label>
-          Feeder
-          <select
-            value={selectedFeederId ?? ''}
-            onChange={(event) => onSelectFeeder(event.target.value)}
-          >
-            {(network?.feeders ?? []).map((feeder) => (
-              <option key={feeder.feederId} value={feeder.feederId}>
-                {feeder.feederId}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="simulator-workflows">
+        <section className="simulator-workflow create-fault-workflow">
+          <div className="workflow-heading">
+            <p className="section-label">Create New Fault</p>
+            <span>Simulate a new outage or sensor condition</span>
+          </div>
 
-        <label>
-          DT
-          <select
-            value={selectedDtId ?? ''}
-            onChange={(event) => onSelectDt(event.target.value)}
-          >
-            {(network?.dts ?? []).map((dt) => (
-              <option key={dt.dtId} value={dt.dtId}>
-                {dt.dtId} · {dt.poleCount}
-              </option>
-            ))}
-          </select>
-        </label>
+          <div className="simulator-selects create-fault-selects">
+            <label>
+              Feeder
+              <select
+                value={selectedFeederId ?? ''}
+                onChange={(event) => onSelectFeeder(event.target.value)}
+              >
+                {(network?.feeders ?? []).map((feeder) => (
+                  <option key={feeder.feederId} value={feeder.feederId}>
+                    {feeder.feederId}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-        <label>
-          Pole
-          <select
-            value={selectedPoleId ?? ''}
-            onChange={(event) => onSelectPole(event.target.value)}
-          >
-            {dtPoles.map((pole) => (
-              <option key={pole.poleId} value={pole.poleId}>
-                {pole.poleId}
-              </option>
-            ))}
-          </select>
-        </label>
+            <label>
+              DT
+              <select
+                value={selectedDtId ?? ''}
+                onChange={(event) => onSelectDt(event.target.value)}
+              >
+                {(network?.dts ?? []).map((dt) => (
+                  <option key={dt.dtId} value={dt.dtId}>
+                    {dt.dtId} · {dt.poleCount}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-        <label>
-          Incident
-          <select
-            value={selectedIncidentId ?? ''}
-            onChange={(event) => onSelectIncident(event.target.value)}
-          >
-            {incidents.map((incident) => (
-              <option key={incident.id} value={incident.id}>
-                {formatIncidentType(incident.type)} ·{' '}
-                {STATUS_META[incident.status]?.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+            <label>
+              Pole
+              <select
+                value={selectedPoleId ?? ''}
+                onChange={(event) => onSelectPole(event.target.value)}
+              >
+                {dtPoles.map((pole) => (
+                  <option key={pole.poleId} value={pole.poleId}>
+                    {pole.poleId}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
-      <div className="simulator-actions">
-        <SimulatorButton
-          icon="⚡"
-          label="Inject Span Fault"
-          kind="span"
-          loading={loading}
-          disabled={!selectedDtId || !selectedPoleId}
-          onRun={onRun}
-        />
-        <SimulatorButton
-          icon="⌁"
-          label="DT Fault"
-          kind="dt"
-          loading={loading}
-          disabled={!selectedDtId}
-          onRun={onRun}
-        />
-        <SimulatorButton
-          icon="⎋"
-          label="Feeder Fault"
-          kind="feeder"
-          loading={loading}
-          disabled={!selectedFeederId}
-          onRun={onRun}
-        />
-        <SimulatorButton
-          icon="⊘"
-          label="Dead Sensor"
-          kind="dead-sensor"
-          loading={loading}
-          disabled={!selectedPoleId}
-          onRun={onRun}
-        />
-        <SimulatorButton
-          icon="↻"
-          label="Repair"
-          kind="repair"
-          loading={loading}
-          disabled={!selectedIncidentId}
-          onRun={onRun}
-        />
+          <div className="simulator-actions create-fault-actions">
+            <SimulatorButton
+              icon="⚡"
+              label="Inject Span Fault"
+              kind="span"
+              loading={loading}
+              disabled={!selectedDtId || !selectedPoleId}
+              onRun={onRun}
+            />
+            <SimulatorButton
+              icon="⌁"
+              label="DT Fault"
+              kind="dt"
+              loading={loading}
+              disabled={!selectedDtId}
+              onRun={onRun}
+            />
+            <SimulatorButton
+              icon="⎋"
+              label="Feeder Fault"
+              kind="feeder"
+              loading={loading}
+              disabled={!selectedFeederId}
+              onRun={onRun}
+            />
+            <SimulatorButton
+              icon="⊘"
+              label="Dead Sensor"
+              kind="dead-sensor"
+              loading={loading}
+              disabled={!selectedPoleId}
+              onRun={onRun}
+            />
+          </div>
+        </section>
+
+        <section className="simulator-workflow manage-incident-workflow">
+          <div className="workflow-heading">
+            <p className="section-label">Manage Existing Incident</p>
+            <span>Operate on an incident that already exists</span>
+          </div>
+
+          <div className="simulator-selects manage-incident-selects">
+            <label>
+              Incident
+              <select
+                value={selectedIncidentId ?? ''}
+                onChange={(event) => onSelectIncident(event.target.value)}
+              >
+                {incidents.map((incident) => (
+                  <option key={incident.id} value={incident.id}>
+                    {formatIncidentType(incident.type)} ·{' '}
+                    {STATUS_META[incident.status]?.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="simulator-actions manage-incident-actions">
+            <SimulatorButton
+              icon="↻"
+              label="Repair"
+              kind="repair"
+              loading={loading}
+              disabled={!selectedIncidentId}
+              onRun={onRun}
+            />
+          </div>
+        </section>
       </div>
 
       {result ? (
@@ -1705,6 +1737,223 @@ function sortIncidents(incidents) {
 
     return new Date(right.detectedAt) - new Date(left.detectedAt);
   });
+}
+
+function buildOperatorTimeline(events, incident) {
+  const timeline = [];
+  const localizationEvents = [];
+  let detectedEvent = null;
+
+  for (const event of events ?? []) {
+    if (event.eventType === 'localization_updated') {
+      localizationEvents.push(event);
+      continue;
+    }
+
+    const normalizedEvent = normalizeTimelineEvent(event);
+
+    if (normalizedEvent) {
+      timeline.push(normalizedEvent);
+    }
+
+    if (event.eventType === 'detected') {
+      detectedEvent = event;
+    }
+  }
+
+  if (localizationEvents.length > 0) {
+    timeline.push(buildLocalizationTimelineEvent(localizationEvents, incident));
+  } else if (detectedEvent?.payload?.incident) {
+    timeline.push(
+      buildInitialLocalizationTimelineEvent(detectedEvent, incident),
+    );
+  }
+
+  return timeline.sort((left, right) => {
+    const leftOrder = left.order ?? 99;
+    const rightOrder = right.order ?? 99;
+
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    return new Date(left.createdAt) - new Date(right.createdAt);
+  });
+}
+
+function normalizeTimelineEvent(event) {
+  if (event.eventType === 'detected') {
+    return {
+      id: event.id,
+      label: 'Detected',
+      createdAt: event.createdAt,
+      order: 0,
+      details: buildDetectionDetails(event),
+    };
+  }
+
+  if (event.eventType === 'dispatch_note_generated') {
+    return {
+      id: event.id,
+      label: 'Dispatch Note Generated',
+      createdAt: event.createdAt,
+      order: 2,
+      details: [formatDispatchSource(event.payload?.source)].filter(Boolean),
+    };
+  }
+
+  if (event.eventType === 'status_changed') {
+    const toStatus = event.payload?.toStatus;
+
+    return {
+      id: event.id,
+      label: formatTimelineStatus(toStatus),
+      createdAt: event.payload?.changedAt ?? event.createdAt,
+      order: getTimelineStatusOrder(toStatus),
+      details: buildStatusChangeDetails(event),
+    };
+  }
+
+  if (event.eventType === 'auto_verified') {
+    return {
+      id: event.id,
+      label: 'Verified',
+      createdAt: event.payload?.verifiedAt ?? event.createdAt,
+      order: 6,
+      details: [event.payload?.reason].filter(Boolean),
+    };
+  }
+
+  if (event.eventType === 'scope_downgraded') {
+    return {
+      id: event.id,
+      label: 'Verified',
+      createdAt: event.payload?.downgradedAt ?? event.createdAt,
+      order: 6,
+      details: [event.payload?.reason].filter(Boolean),
+    };
+  }
+
+  return null;
+}
+
+function buildInitialLocalizationTimelineEvent(detectedEvent, incident) {
+  const detectedIncident = detectedEvent.payload?.incident ?? {};
+  const confidence = detectedIncident.confidence ?? incident?.confidence;
+  const affectedPoleCount =
+    detectedIncident.affectedPoleCount ?? incident?.affectedPoleCount;
+  const boundary = detectedIncident.boundaryPoleId ?? incident?.boundaryPoleId;
+  const details = [
+    confidence !== undefined ? `Confidence: ${toPercent(confidence)}` : null,
+    affectedPoleCount !== undefined
+      ? `${affectedPoleCount} affected poles`
+      : null,
+    boundary ? `Boundary: ${boundary}` : null,
+  ].filter(Boolean);
+
+  return {
+    id: `localization-established-${detectedEvent.id}`,
+    label: 'Localization Established',
+    createdAt: detectedEvent.createdAt,
+    order: 1,
+    details,
+  };
+}
+
+function buildLocalizationTimelineEvent(localizationEvents, incident) {
+  const latestEvent = localizationEvents.reduce((latest, event) =>
+    new Date(event.createdAt) > new Date(latest.createdAt) ? event : latest,
+  );
+  const latestIncident = latestEvent.payload?.incident ?? {};
+  const confidence = latestIncident.confidence ?? incident?.confidence;
+  const affectedPoleCount =
+    latestIncident.affectedPoleCount ?? incident?.affectedPoleCount;
+  const boundary = latestIncident.boundaryPoleId ?? incident?.boundaryPoleId;
+  const details = [
+    confidence !== undefined ? `Confidence: ${toPercent(confidence)}` : null,
+    affectedPoleCount !== undefined
+      ? `${affectedPoleCount} affected poles`
+      : null,
+    boundary ? `Boundary: ${boundary}` : null,
+    `Last update: ${formatRelativeTime(
+      latestEvent.payload?.updatedAt ?? latestEvent.createdAt,
+    )}`,
+    localizationEvents.length > 1
+      ? `${localizationEvents.length} localization updates collapsed`
+      : null,
+  ].filter(Boolean);
+
+  return {
+    id: `localization-${latestEvent.id}`,
+    label:
+      localizationEvents.length > 1
+        ? 'Localization Updated'
+        : 'Localization Established',
+    createdAt: latestEvent.payload?.updatedAt ?? latestEvent.createdAt,
+    order: 1,
+    details,
+  };
+}
+
+function buildDetectionDetails(event) {
+  const detectedIncident = event.payload?.incident;
+
+  return [
+    detectedIncident?.confidence !== undefined
+      ? `Initial confidence: ${toPercent(detectedIncident.confidence)}`
+      : null,
+    detectedIncident?.affectedPoleCount !== undefined
+      ? `${detectedIncident.affectedPoleCount} affected poles`
+      : null,
+  ].filter(Boolean);
+}
+
+function buildStatusChangeDetails(event) {
+  const details = [];
+
+  if (event.payload?.fromStatus && event.payload?.toStatus) {
+    details.push(
+      `${formatTimelineStatus(event.payload.fromStatus)} → ${formatTimelineStatus(
+        event.payload.toStatus,
+      )}`,
+    );
+  }
+
+  if (event.payload?.crewNote) {
+    details.push(event.payload.crewNote);
+  }
+
+  if (event.payload?.note) {
+    details.push(event.payload.note);
+  }
+
+  return details;
+}
+
+function formatTimelineStatus(status) {
+  const labels = {
+    detected: 'Detected',
+    acknowledged: 'Acknowledged',
+    crew_assigned: 'Crew Assigned',
+    resolved: 'Resolved',
+    verified: 'Verified',
+    closed: 'Closed',
+  };
+
+  return labels[status] ?? formatEventType(status ?? 'updated');
+}
+
+function getTimelineStatusOrder(status) {
+  const order = {
+    detected: 0,
+    acknowledged: 3,
+    crew_assigned: 4,
+    resolved: 5,
+    verified: 6,
+    closed: 7,
+  };
+
+  return order[status] ?? 99;
 }
 
 function useActiveHashSection() {

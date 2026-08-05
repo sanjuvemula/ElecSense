@@ -888,6 +888,18 @@ h1 {
   font-weight: 720;
 }
 
+.timeline-details {
+  display: grid;
+  gap: 3px;
+  margin-top: 6px;
+}
+
+.timeline-details small {
+  color: var(--text-disabled);
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
 .operator-note {
   width: 100%;
   min-height: 80px;
@@ -1121,11 +1133,54 @@ h1 {
   background: rgba(255, 255, 255, 0.68);
 }
 
+.simulator-workflows {
+  display: grid;
+  gap: 22px;
+}
+
+.simulator-workflow {
+  display: grid;
+  gap: 16px;
+}
+
+.manage-incident-workflow {
+  padding-top: 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.workflow-heading {
+  display: grid;
+  gap: 5px;
+}
+
+.workflow-heading span {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.create-fault-selects {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 0;
+}
+
+.manage-incident-selects {
+  grid-template-columns: minmax(0, 1fr);
+  margin-bottom: 0;
+}
+
 .simulator-actions {
   display: grid;
   grid-template-columns: repeat(5, minmax(150px, 1fr));
   gap: 12px;
-  margin-top: 18px;
+  margin-top: 0;
+}
+
+.create-fault-actions {
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+}
+
+.manage-incident-actions {
+  grid-template-columns: minmax(160px, 240px);
 }
 
 .simulator-button {
