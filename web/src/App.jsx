@@ -1811,9 +1811,10 @@ function formatDispatchSource(source) {
 
   return 'Pending generation';
 }
-
+const API_BASE =
+  import.meta.env.VITE_API_URL || "http://localhost:3000";
 async function fetchJson(path, options = {}) {
-  const response = await fetch(path, {
+  const response = await fetch(`${API_BASE}${path}`, {
     method: options.method ?? 'GET',
     headers: API_HEADERS,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
