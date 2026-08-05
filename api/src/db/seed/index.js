@@ -30,7 +30,9 @@ const client = postgres(databaseUrl, { max: 1 });
 const db = drizzle(client, { schema });
 
 try {
-  await migrate(db, { migrationsFolder: path.join(apiRoot, 'drizzle') });
+  if (process.env.SEED_SKIP_MIGRATE !== 'true') {
+    await migrate(db, { migrationsFolder: path.join(apiRoot, 'drizzle') });
+  }
 
   const [{ value: poleCount }] = await db
     .select({ value: count() })

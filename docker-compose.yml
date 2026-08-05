@@ -11,45 +11,52 @@ services:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d elecsense"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
 
   api:
-    image: node:24-alpine
-    working_dir: /app
-    command: sh -c "npm install && npm run dev -w api"
+    build:
+      context: .
+      dockerfile: api/Dockerfile
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/elecsense
+      GROUND_TRUTH_PATH: /app/data/groundTruth.json
       PORT: 3000
-      NODE_ENV: development
+      NODE_ENV: production
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-3-5-haiku-latest}
     ports:
       - "3000:3000"
     volumes:
-      - .:/app
-      - api-node-modules:/app/node_modules
+      - api-ground-truth:/app/data
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   web:
-    image: node:24-alpine
-    working_dir: /app
-    command: sh -c "npm install && npm run dev -w web -- --host 0.0.0.0"
-    environment:
-      VITE_API_PROXY_TARGET: http://api:3000
-      NODE_ENV: development
+    build:
+      context: .
+      dockerfile: web/Dockerfile
     ports:
-      - "5173:5173"
-    volumes:
-      - .:/app
-      - web-node-modules:/app/node_modules
+      - "5173:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
 volumes:
   postgres-data:
-  api-node-modules:
-  web-node-modules:
+  api-ground-truth:
