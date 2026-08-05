@@ -584,6 +584,44 @@ export function OperationsMap({
   }, [leafletReady]);
 
   useEffect(() => {
+    if (!leafletReady || !containerRef.current || !mapRef.current) {
+      return undefined;
+    }
+
+    let frameId = null;
+    const scheduleSizeRefresh = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        mapRef.current?.invalidateSize();
+      });
+    };
+
+    scheduleSizeRefresh();
+
+    if (!window.ResizeObserver) {
+      return () => {
+        if (frameId !== null) {
+          window.cancelAnimationFrame(frameId);
+        }
+      };
+    }
+
+    const resizeObserver = new window.ResizeObserver(scheduleSizeRefresh);
+    resizeObserver.observe(containerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [leafletReady]);
+
+  useEffect(() => {
     if (!leafletReady || !mapRef.current || !layersRef.current || !network) {
       return;
     }
@@ -732,8 +770,8 @@ export function OperationsMap({
 
     if (!hasFitBoundsRef.current && bounds.length > 0) {
       map.fitBounds(bounds, {
-        paddingTopLeft: [420, 120],
-        paddingBottomRight: [520, 220],
+        paddingTopLeft: [48, 120],
+        paddingBottomRight: [48, 88],
         maxZoom: 14,
       });
       hasFitBoundsRef.current = true;

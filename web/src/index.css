@@ -297,15 +297,29 @@ h1 {
 .workspace {
   position: relative;
   z-index: 1;
-  width: 100vw;
+  display: grid;
+  grid-template-areas:
+    "incident map detail"
+    "simulator simulator simulator";
+  grid-template-columns: minmax(300px, 350px) minmax(0, 1fr) minmax(360px, 430px);
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 18px;
+  width: 100%;
   height: 100vh;
+  min-height: 0;
   padding: 118px 24px 24px;
+  overflow: hidden;
 }
 
 .map-shell {
+  grid-area: map;
   position: relative;
-  height: calc(100vh - 142px);
-  min-height: 640px;
+  z-index: 1;
+  isolation: isolate;
+  contain: layout paint size;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 32px;
@@ -319,10 +333,10 @@ h1 {
   position: absolute;
   z-index: 20;
   top: 22px;
-  left: 50%;
+  right: 22px;
+  left: 22px;
   justify-content: space-between;
-  width: min(760px, calc(100vw - 760px));
-  min-width: 420px;
+  min-width: 0;
   padding: 16px 18px;
   border: 1px solid var(--border);
   border-radius: 24px;
@@ -362,15 +376,36 @@ h1 {
 }
 
 .leaflet-host {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  contain: layout paint size;
 }
 
-.leaflet-container {
-  width: 100%;
-  height: 100%;
+.leaflet-host.leaflet-container,
+.map-shell .leaflet-container {
+  position: absolute !important;
+  inset: 0;
+  z-index: 0;
+  width: auto !important;
+  height: auto !important;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden !important;
   background: #0a1020;
   font-family: inherit;
+}
+
+.map-shell .leaflet-pane,
+.map-shell .leaflet-control-container {
+  max-width: 100%;
+  max-height: 100%;
 }
 
 .leaflet-tile {
@@ -451,12 +486,14 @@ h1 {
 }
 
 .incident-rail {
-  position: absolute;
-  z-index: 25;
-  top: 148px;
-  left: 48px;
-  width: min(350px, calc(100vw - 96px));
-  max-height: calc(100vh - 318px);
+  grid-area: incident;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  flex-direction: column;
   padding: 18px;
   border-radius: 28px;
 }
@@ -494,7 +531,8 @@ h1 {
 
 .incident-list {
   display: grid;
-  max-height: calc(100vh - 430px);
+  flex: 1;
+  min-height: 0;
   gap: 12px;
   overflow: auto;
   padding-right: 4px;
@@ -626,12 +664,11 @@ h1 {
 }
 
 .detail-panel {
-  position: absolute;
-  z-index: 28;
-  top: 148px;
-  right: 48px;
-  width: min(430px, calc(100vw - 96px));
-  max-height: calc(100vh - 196px);
+  grid-area: detail;
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
   padding: 22px;
   border-radius: 30px;
@@ -916,14 +953,12 @@ h1 {
 }
 
 .simulator-dock {
-  position: absolute;
-  z-index: 32;
-  right: 50%;
-  bottom: 44px;
-  width: min(860px, calc(100vw - 96px));
+  grid-area: simulator;
+  position: relative;
+  z-index: 2;
+  min-width: 0;
   padding: 18px;
   border-radius: 28px;
-  transform: translateX(50%);
 }
 
 .simulator-header {
@@ -1128,8 +1163,17 @@ h1 {
   }
 
   .workspace {
+    grid-template-areas:
+      "map"
+      "incident"
+      "detail"
+      "simulator";
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
     height: auto;
+    min-height: 0;
     padding: 0 18px 18px;
+    overflow: visible;
   }
 
   .map-shell {
@@ -1154,7 +1198,7 @@ h1 {
     left: auto;
     width: auto;
     max-height: none;
-    margin-top: 18px;
+    margin-top: 0;
     transform: none;
   }
 
