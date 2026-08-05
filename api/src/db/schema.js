@@ -10,6 +10,7 @@ import {
   numeric,
   pgTable,
   primaryKey,
+  serial,
   text,
   timestamp,
   uniqueIndex,
@@ -194,6 +195,7 @@ export const incidents = pgTable(
   'incidents',
   {
     id: uuid('id').defaultRandom().primaryKey(),
+    incidentNumber: serial('incident_number').notNull().unique(),
     type: text('type', {
       enum: ['span', 'dt', 'feeder', 'sensor_fault'],
     }).notNull(),

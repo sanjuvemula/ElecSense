@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { usePolling } from './hooks/usePolling.js';
+import { formatIncidentLabel } from './lib/formatIncident.js';
 
 const STATUS_META = {
   detected: {
@@ -41,13 +42,6 @@ const STATUS_META = {
     priority: 5,
     tone: 'closed',
   },
-};
-
-const INCIDENT_TYPE_LABELS = {
-  span: 'Span Fault',
-  dt: 'DT Outage',
-  feeder: 'Feeder Outage',
-  sensor_fault: 'Sensor Fault',
 };
 
 const SIMULATOR_ACTIONABLE_STATUSES = new Set([
@@ -1085,7 +1079,7 @@ export function IncidentRail({
                 {toPercent(incident.confidence)}
               </span>
             </div>
-            <h3>{formatIncidentType(incident.type)}</h3>
+            <h3>{formatIncidentLabel(incident)}</h3>
             <div className="incident-card-grid">
               <span>Affected</span>
               <strong>{incident.affectedPoleCount} poles</strong>
@@ -1139,7 +1133,7 @@ export function IncidentDetailPanel({
           <div className="detail-hero">
             <div>
               <p className="eyebrow">Incident Details</p>
-              <h2>{formatIncidentType(incident.type)}</h2>
+              <h2>{formatIncidentLabel(incident)}</h2>
             </div>
             <StatusPill status={incident.status} />
           </div>
@@ -1563,10 +1557,7 @@ export function SimulatorDock({
                 </option>
                 {actionableIncidents.map((incident) => (
                   <option key={incident.id} value={incident.id}>
-                    {formatIncidentCode(incident)} ·{' '}
-                    {formatIncidentType(incident.type)} ·{' '}
-                    {incident.dtId ?? incident.feederId ?? 'Grid'} ·{' '}
-                    {STATUS_META[incident.status]?.label}
+                    {formatIncidentLabel(incident, { includeStatus: true })}
                   </option>
                 ))}
               </select>
@@ -1685,7 +1676,9 @@ function formatWorkflowNotice(actionPath, result) {
 
   return {
     tone: 'success',
-    message: `Incident moved to ${STATUS_META[result.incident.status]?.label}.`,
+    message: `${formatIncidentLabel(result.incident)} moved to ${
+      STATUS_META[result.incident.status]?.label
+    }.`,
   };
 }
 
@@ -1701,8 +1694,12 @@ function formatDispatchNotice(result) {
   return {
     tone: 'success',
     message: result.reused
-      ? 'Stored dispatch note is still current.'
-      : 'Dispatch note regenerated with the LLM.',
+      ? `Stored dispatch note is still current for ${formatIncidentLabel(
+          result.incident,
+        )}.`
+      : `Dispatch note regenerated with the LLM for ${formatIncidentLabel(
+          result.incident,
+        )}.`,
   };
 }
 
@@ -1762,14 +1759,9 @@ function sortIncidents(incidents) {
 
 function buildSimulatorIncidentOptions(incidents) {
   const incidentList = incidents ?? [];
-  const incidentCodes = buildIncidentCodeMap(incidentList);
 
   return incidentList
     .filter((incident) => SIMULATOR_ACTIONABLE_STATUSES.has(incident.status))
-    .map((incident) => ({
-      ...incident,
-      simulatorIncidentCode: incidentCodes.get(incident.id),
-    }))
     .sort((left, right) => {
       const leftPriority = STATUS_META[left.status]?.priority ?? 99;
       const rightPriority = STATUS_META[right.status]?.priority ?? 99;
@@ -1780,34 +1772,6 @@ function buildSimulatorIncidentOptions(incidents) {
 
       return new Date(left.detectedAt) - new Date(right.detectedAt);
     });
-}
-
-function buildIncidentCodeMap(incidents) {
-  const incidentList = incidents ?? [];
-
-  return new Map(
-    [...incidentList]
-      .sort(
-        (left, right) => new Date(left.detectedAt) - new Date(right.detectedAt),
-      )
-      .map((incident, index) => [
-        incident.id,
-        formatIncidentOrdinal(index + 1),
-      ]),
-  );
-}
-
-function formatIncidentCode(incident) {
-  return (
-    incident.incidentCode ??
-    incident.code ??
-    incident.simulatorIncidentCode ??
-    'INC-???'
-  );
-}
-
-function formatIncidentOrdinal(value) {
-  return `INC-${String(value).padStart(3, '0')}`;
 }
 
 function buildOperatorTimeline(events, incident) {
@@ -2160,10 +2124,6 @@ function summarizeSimulatorResult(result) {
   const detectionCount = result.detection?.createdIncidentCount ?? 0;
 
   return `${telemetryCount} telemetry events sent across ${affectedCount} affected poles. ${detectionCount} new incident candidates created.`;
-}
-
-function formatIncidentType(type) {
-  return INCIDENT_TYPE_LABELS[type] ?? capitalize(type);
 }
 
 function formatEventType(type) {
