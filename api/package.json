@@ -16,6 +16,7 @@
     "loadtest": "node scripts/loadtest.js"
   },
   "dependencies": {
+    "@google/genai": "^2.15.0",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.44.0",
     "express": "^5.1.0",

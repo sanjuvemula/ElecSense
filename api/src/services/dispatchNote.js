@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
 
+import { GoogleGenAI } from '@google/genai';
+
 export const DISPATCH_NOTE_SOURCES = Object.freeze({
   LLM: 'llm',
   TEMPLATE_FALLBACK: 'template-fallback',
 });
 
 export const DEFAULT_DISPATCH_NOTE_TIMEOUT_MS = 5000;
-export const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-haiku-latest';
-export const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
+export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 
 export function shouldReuseDispatchNote(incident, fingerprint, regenerate) {
   return (
@@ -30,7 +31,7 @@ export async function generateDispatchNote(incident, options = {}) {
   }
 
   try {
-    const note = await callAnthropicForDispatchNote(incident, options);
+    const note = await callGeminiForDispatchNote(incident, options);
 
     return {
       note,
@@ -100,67 +101,69 @@ export function buildDispatchNotePrompt(incident) {
   ].join('\n');
 }
 
-async function callAnthropicForDispatchNote(incident, options) {
-  const apiKey = options.apiKey ?? process.env.ANTHROPIC_API_KEY;
+async function callGeminiForDispatchNote(incident, options) {
+  const apiKey = options.apiKey ?? process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is not configured.');
+    throw new Error('GEMINI_API_KEY is not configured.');
   }
 
-  const timeoutMs =
-    options.timeoutMs ?? DEFAULT_DISPATCH_NOTE_TIMEOUT_MS;
-  const controller = new globalThis.AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  const timeoutMs = options.timeoutMs ?? DEFAULT_DISPATCH_NOTE_TIMEOUT_MS;
+  const request = {
+    model: options.model ?? process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL,
+    contents: buildDispatchNotePrompt(incident),
+    config: {
+      maxOutputTokens: 220,
+      systemInstruction:
+        'You format deterministic utility incident data into concise dispatch prose. You are not doing diagnosis or localization.',
+    },
+  };
+  const generateContent =
+    options.generateContent ??
+    ((requestConfig) => {
+      const client = options.client ?? new GoogleGenAI({ apiKey });
+
+      return client.models.generateContent(requestConfig);
+    });
+  const response = await withTimeout(
+    generateContent(request),
+    timeoutMs,
+    'Gemini request timed out.',
+  );
+  const text = extractGeminiText(response);
+
+  if (!text) {
+    throw new Error('Gemini response did not include text content.');
+  }
+
+  return text;
+}
+
+async function withTimeout(promise, timeoutMs, message) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
 
   try {
-    const response = await (options.fetch ?? globalThis.fetch)(
-      options.apiUrl ?? ANTHROPIC_MESSAGES_URL,
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model:
-            options.model ??
-            process.env.ANTHROPIC_MODEL ??
-            DEFAULT_ANTHROPIC_MODEL,
-          max_tokens: 220,
-          system:
-            'You format deterministic utility incident data into concise dispatch prose. You are not doing diagnosis or localization.',
-          messages: [
-            {
-              role: 'user',
-              content: buildDispatchNotePrompt(incident),
-            },
-          ],
-        }),
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error(`Anthropic request failed with ${response.status}.`);
-    }
-
-    const payload = await response.json();
-    const text = extractAnthropicText(payload);
-
-    if (!text) {
-      throw new Error('Anthropic response did not include text content.');
-    }
-
-    return text;
+    return await Promise.race([promise, timeout]);
   } finally {
-    globalThis.clearTimeout(timeout);
+    globalThis.clearTimeout(timeoutId);
   }
 }
 
-function extractAnthropicText(payload) {
-  return payload.content
-    ?.filter((part) => part.type === 'text' && typeof part.text === 'string')
+function extractGeminiText(response) {
+  if (typeof response?.text === 'string') {
+    return response.text.trim();
+  }
+
+  if (typeof response?.text === 'function') {
+    return response.text().trim();
+  }
+
+  return response?.candidates
+    ?.flatMap((candidate) => candidate.content?.parts ?? [])
+    .filter((part) => typeof part.text === 'string')
     .map((part) => part.text.trim())
     .filter(Boolean)
     .join('\n')

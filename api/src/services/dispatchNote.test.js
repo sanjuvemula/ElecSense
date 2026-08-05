@@ -31,38 +31,28 @@ test('reuses a stored dispatch note when the incident fingerprint matches', asyn
   assert.equal(result.note, 'Stored note for the crew.');
 });
 
-test('uses Anthropic text when the provider call succeeds', async () => {
+test('uses Gemini text when the provider call succeeds', async () => {
   const result = await generateDispatchNote(sampleIncident(), {
     apiKey: 'test-key',
-    fetch: async (_url, request) => {
-      const body = JSON.parse(request.body);
+    generateContent: async (request) => {
+      assert.equal(request.model, 'gemini-2.5-flash');
+      assert.equal(request.config.maxOutputTokens, 220);
+      assert.match(request.config.systemInstruction, /concise dispatch prose/);
+      assert.match(request.contents, /affectedPoleCount/);
+      assert.doesNotMatch(request.contents, /telemetry_events/);
 
-      assert.equal(body.model, 'claude-3-5-haiku-latest');
-      assert.match(body.messages[0].content, /affectedPoleCount/);
-      assert.doesNotMatch(body.messages[0].content, /telemetry_events/);
-
-      return {
-        ok: true,
-        json: async () => ({
-          content: [
-            {
-              type: 'text',
-              text: 'Crew note from Claude.',
-            },
-          ],
-        }),
-      };
+      return { text: 'Crew note from Gemini.' };
     },
   });
 
   assert.equal(result.source, DISPATCH_NOTE_SOURCES.LLM);
-  assert.equal(result.note, 'Crew note from Claude.');
+  assert.equal(result.note, 'Crew note from Gemini.');
 });
 
 test('falls back to a deterministic template when the LLM fails', async () => {
   const result = await generateDispatchNote(sampleIncident(), {
     apiKey: 'test-key',
-    fetch: async () => {
+    generateContent: async () => {
       throw new Error('network down');
     },
   });
@@ -71,6 +61,18 @@ test('falls back to a deterministic template when the LLM fails', async () => {
   assert.match(result.note, /SPAN FAULT near P-024431\/P-024432/);
   assert.match(result.note, /location is an estimate/i);
   assert.equal(result.error, 'network down');
+});
+
+test('falls back to a deterministic template when Gemini times out', async () => {
+  const result = await generateDispatchNote(sampleIncident(), {
+    apiKey: 'test-key',
+    timeoutMs: 1,
+    generateContent: () => new Promise(() => {}),
+  });
+
+  assert.equal(result.source, DISPATCH_NOTE_SOURCES.TEMPLATE_FALLBACK);
+  assert.match(result.note, /SPAN FAULT near P-024431\/P-024432/);
+  assert.equal(result.error, 'Gemini request timed out.');
 });
 
 test('template note calls out inferred or low confidence locations', () => {
