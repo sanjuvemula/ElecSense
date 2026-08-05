@@ -60,11 +60,18 @@ export async function localizeFaultsForFeeder(feederId, options = {}) {
     fetchScheduledOutages(database),
   ]);
   const dtSnapshots = await Promise.all(
-    dtRows.map(async (dt) => ({
-      dt,
-      tree: await inferTopology(dt.dtId, { db: database }),
-      poles: await fetchPoleStatesForDt(database, dt.dtId),
-    })),
+    dtRows.map(async (dt) => {
+      const rawPoleStates = await fetchPoleStatesForDt(database, dt.dtId);
+
+      return {
+        dt,
+        tree: await inferTopology(dt.dtId, { db: database }),
+        poles: applyConfirmedDarkFilter(
+          rawPoleStates,
+          options.confirmedDarkPoleIds,
+        ),
+      };
+    }),
   );
 
   return localizeFaultsForFeederSnapshot({
@@ -72,6 +79,7 @@ export async function localizeFaultsForFeeder(feederId, options = {}) {
     dtSnapshots,
     scheduledOutages: outageRows,
     now: options.now ?? new Date(),
+    options: options.localizationOptions ?? {},
   });
 }
 

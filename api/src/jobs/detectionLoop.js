@@ -13,7 +13,10 @@ import {
   areAllAffectedPolesLiveRecently,
   DEFAULT_AUTO_VERIFY_LIVE_WINDOW_MS,
 } from '../services/incidentTelemetry.js';
-import { localizeFaultsForDt } from '../services/localization.js';
+import {
+  localizeFaultsForDt,
+  localizeFaultsForFeeder,
+} from '../services/localization.js';
 
 export const DEFAULT_DETECTION_INTERVAL_MS = 10 * 1000;
 export const OUTAGE_GRACE_BEFORE_MS = 15 * 60 * 1000;
@@ -80,10 +83,25 @@ export async function runDetectionOnce(options = {}) {
     throw error;
   }
 
+  const fetchScheduledOutagesFn =
+    options.fetchScheduledOutages ?? fetchScheduledOutages;
+  const fetchConfirmedDarkPolesFn =
+    options.fetchConfirmedDarkPoles ?? fetchConfirmedDarkPoles;
+  const localizeFaultsForFeederFn =
+    options.localizeFaultsForFeeder ?? localizeFaultsForFeeder;
+  const localizeFaultsForDtFn =
+    options.localizeFaultsForDt ?? localizeFaultsForDt;
+  const persistLocalizedIncidentsFn =
+    options.persistLocalizedIncidents ?? persistLocalizedIncidents;
+  const autoVerifyIncidentsFn =
+    options.autoVerifyIncidents ?? autoVerifyIncidents;
+  const markOpenFeederIncidentsDowngradedFn =
+    options.markOpenFeederIncidentsDowngraded ??
+    markOpenFeederIncidentsDowngraded;
   const now = normalizeDate(options.now ?? new Date());
-  const outageRows = await fetchScheduledOutages(database);
+  const outageRows = await fetchScheduledOutagesFn(database);
   const activeOutages = buildActiveOutageSet(outageRows, now);
-  const confirmedDarkPoles = await fetchConfirmedDarkPoles(database, {
+  const confirmedDarkPoles = await fetchConfirmedDarkPolesFn(database, {
     now,
     debounceMs: options.darkDebounceMs ?? DARK_DEBOUNCE_MS,
   });
@@ -91,15 +109,71 @@ export async function runDetectionOnce(options = {}) {
     confirmedDarkPoles,
     activeOutages.keys,
   );
+  const candidatesByFeeder = groupConfirmedPolesByFeeder(candidatesByDt);
+  const skippedDtIds = new Set();
+  const downgradedFeederIds = [];
   const summaries = [];
 
-  for (const [dtId, candidate] of candidatesByDt.entries()) {
-    const result = await localizeFaultsForDt(dtId, {
+  for (const [feederId, candidate] of candidatesByFeeder.entries()) {
+    const result = await localizeFaultsForFeederFn(feederId, {
       db: database,
       now,
       confirmedDarkPoleIds: candidate.poleIds,
     });
-    const persistence = await persistLocalizedIncidents(
+    const feederIncidents = result.incidents.filter(
+      (incident) => incident.type === 'feeder',
+    );
+
+    if (result.suppressedByOutage) {
+      for (const dtId of candidate.dtIds) {
+        skippedDtIds.add(dtId);
+      }
+      continue;
+    }
+
+    if (feederIncidents.length > 0) {
+      const persistence = await persistLocalizedIncidentsFn(
+        database,
+        feederIncidents,
+        now,
+      );
+
+      for (const dtId of candidate.dtIds) {
+        skippedDtIds.add(dtId);
+      }
+
+      summaries.push({
+        feederId,
+        incidentCandidates: feederIncidents.length,
+        ...persistence,
+      });
+    } else {
+      downgradedFeederIds.push(feederId);
+    }
+  }
+
+  // Assumption: if a previously feeder-wide outage no longer localizes as
+  // feeder-wide while some DTs remain dark, telemetry has disproven the feeder
+  // scope. We mark that feeder incident verified/superseded and allow this
+  // cycle to create narrower DT incidents; manual closure remains a separate
+  // lifecycle step.
+  const downgrade = await markOpenFeederIncidentsDowngradedFn(
+    database,
+    downgradedFeederIds,
+    now,
+  );
+
+  for (const [dtId, candidate] of candidatesByDt.entries()) {
+    if (skippedDtIds.has(dtId)) {
+      continue;
+    }
+
+    const result = await localizeFaultsForDtFn(dtId, {
+      db: database,
+      now,
+      confirmedDarkPoleIds: candidate.poleIds,
+    });
+    const persistence = await persistLocalizedIncidentsFn(
       database,
       result.incidents,
       now,
@@ -112,10 +186,11 @@ export async function runDetectionOnce(options = {}) {
     });
   }
 
-  const verification = await autoVerifyIncidents(database, { now });
+  const verification = await autoVerifyIncidentsFn(database, { now });
 
   return {
     checkedDtCount: candidatesByDt.size,
+    checkedFeederCount: candidatesByFeeder.size,
     confirmedDarkPoleCount: confirmedDarkPoles.length,
     skippedOutageDtCount: countSuppressedDts(confirmedDarkPoles, activeOutages),
     createdIncidentCount: summaries.reduce(
@@ -126,6 +201,8 @@ export async function runDetectionOnce(options = {}) {
       (total, summary) => total + summary.updatedIncidentCount,
       0,
     ),
+    downgradedFeederIncidentCount:
+      downgrade.downgradedFeederIncidentCount ?? 0,
     verifiedIncidentCount: verification.verifiedIncidentCount,
   };
 }
@@ -285,6 +362,22 @@ function groupConfirmedPolesByDt(confirmedDarkPoles, activeOutageKeys) {
   return groups;
 }
 
+function groupConfirmedPolesByFeeder(candidatesByDt) {
+  const groups = new Map();
+
+  for (const [dtId, candidate] of candidatesByDt.entries()) {
+    const current = groups.get(candidate.feederId) ?? {
+      dtIds: [],
+      poleIds: [],
+    };
+    current.dtIds.push(dtId);
+    current.poleIds.push(...candidate.poleIds);
+    groups.set(candidate.feederId, current);
+  }
+
+  return groups;
+}
+
 function isSuppressedByOutage(pole, activeOutageKeys) {
   return (
     activeOutageKeys.has(outageKey('dt', pole.dtId)) ||
@@ -424,6 +517,51 @@ async function logIncidentEvent(database, incidentId, eventType, payload) {
     eventType,
     payload,
   });
+}
+
+async function markOpenFeederIncidentsDowngraded(database, feederIds, now) {
+  const uniqueFeederIds = [...new Set(feederIds)].filter(Boolean);
+
+  if (uniqueFeederIds.length === 0) {
+    return { downgradedFeederIncidentCount: 0 };
+  }
+
+  const openFeederIncidents = await database
+    .select({
+      id: incidents.id,
+      feederId: incidents.feederId,
+      status: incidents.status,
+    })
+    .from(incidents)
+    .where(
+      and(
+        eq(incidents.type, 'feeder'),
+        inArray(incidents.feederId, uniqueFeederIds),
+        inArray(incidents.status, OPEN_INCIDENT_STATUSES),
+      ),
+    );
+
+  for (const incident of openFeederIncidents) {
+    await database
+      .update(incidents)
+      .set({
+        status: 'verified',
+        verifiedAt: now,
+      })
+      .where(eq(incidents.id, incident.id));
+    await logIncidentEvent(database, incident.id, 'scope_downgraded', {
+      fromStatus: incident.status,
+      toStatus: 'verified',
+      feederId: incident.feederId,
+      downgradedAt: now.toISOString(),
+      reason:
+        'feeder no longer fully dark; remaining symptoms will be localized per DT',
+    });
+  }
+
+  return {
+    downgradedFeederIncidentCount: openFeederIncidents.length,
+  };
 }
 
 async function autoVerifyIncidents(database, options = {}) {
