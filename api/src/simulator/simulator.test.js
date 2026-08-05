@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  assertGroundTruthSeedMatches,
   buildTruthTree,
   collectDownstreamPoleIds,
   createFaultTelemetryPlan,
+  createLiveHeartbeatPlan,
   createRepairTelemetryPlan,
 } from './simulator.js';
 
@@ -54,6 +56,48 @@ test('fault telemetry uses live baselines and never power_lost for legacy device
   assert.deepEqual(plan.skipped.noDevicePoleIds, ['P4']);
 });
 
+test('fault telemetry skips devices silenced by a prior dead-sensor simulation', () => {
+  const statesByPoleId = new Map([
+    ['P1', deviceState('P1', 'D1', '1.4.2')],
+    ['P2', deviceState('P2', 'D2', '1.4.2')],
+  ]);
+  const plan = createFaultTelemetryPlan({
+    affectedPoleIds: ['P2'],
+    baselineLivePoleIds: ['P1'],
+    statesByPoleId,
+    silencedDeviceIds: new Set(['D1', 'D2']),
+    now,
+    rng: repeatingRng([0.1, 0.5, 0.5, 0.5]),
+  });
+
+  assert.equal(plan.events.length, 0);
+  assert.deepEqual(plan.skipped.silencedPoleIds, ['P2']);
+  assert.deepEqual(plan.skipped.silencedDeviceIds, ['D2']);
+  assert.deepEqual(plan.skipped.silencedBaselinePoleIds, ['P1']);
+  assert.deepEqual(plan.skipped.silencedBaselineDeviceIds, ['D1']);
+});
+
+test('live heartbeat plan excludes silenced devices from future manual batches', () => {
+  const statesByPoleId = new Map([
+    ['P1', deviceState('P1', 'D1', '1.4.2')],
+    ['P2', deviceState('P2', 'D2', '1.4.2')],
+  ]);
+  const plan = createLiveHeartbeatPlan({
+    poleIds: ['P1', 'P2'],
+    statesByPoleId,
+    silencedDeviceIds: ['D2'],
+    now,
+    rng: repeatingRng([0.1, 0.5, 0.5, 0.5]),
+  });
+
+  assert.deepEqual(
+    plan.events.map((event) => event.deviceId),
+    ['D1'],
+  );
+  assert.deepEqual(plan.skipped.silencedPoleIds, ['P2']);
+  assert.deepEqual(plan.skipped.silencedDeviceIds, ['D2']);
+});
+
 test('repair telemetry keeps each device boot before power_restored', () => {
   const statesByPoleId = new Map([
     ['P1', deviceState('P1', 'D1', '1.4.2')],
@@ -76,6 +120,25 @@ test('repair telemetry keeps each device boot before power_restored', () => {
       ['boot', 'power_restored'],
     );
   }
+});
+
+test('ground-truth seed mismatch fails loudly instead of regenerating fallback topology', () => {
+  assert.throws(
+    () =>
+      assertGroundTruthSeedMatches(
+        { seed: 240731 },
+        '240999',
+        'groundTruth.json',
+      ),
+    /Ground-truth seed mismatch/,
+  );
+});
+
+test('missing database seed metadata fails loudly before simulator injection', () => {
+  assert.throws(
+    () => assertGroundTruthSeedMatches({ seed: 240731 }, null),
+    /Database network seed metadata is missing/,
+  );
 });
 
 function truthPole(poleId, trueParentPoleId) {

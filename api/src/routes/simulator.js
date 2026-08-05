@@ -9,6 +9,7 @@ import {
   injectScheduledOutage,
   injectSpanFault,
   repairFault,
+  unsilenceDevice,
 } from '../simulator/simulator.js';
 
 const router = Router();
@@ -61,6 +62,18 @@ router.post('/dead-sensor', async (req, res, next) => {
   try {
     res.status(202).json(
       await injectDeadSensor(req.body, {
+        db: requireDatabase(),
+      }),
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/unsilence', async (req, res, next) => {
+  try {
+    res.status(202).json(
+      await unsilenceDevice(req.body, {
         db: requireDatabase(),
       }),
     );

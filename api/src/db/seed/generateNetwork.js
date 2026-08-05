@@ -4,7 +4,14 @@ import { fileURLToPath } from 'node:url';
 
 import seedrandom from 'seedrandom';
 
-import { devices, dts, feeders, poles, scheduledOutages } from '../schema.js';
+import {
+  appMetadata,
+  devices,
+  dts,
+  feeders,
+  poles,
+  scheduledOutages,
+} from '../schema.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -224,6 +231,20 @@ export async function generateNetwork(db, options = {}) {
     await insertRows(tx, poles, network.poles);
     await insertRows(tx, devices, network.devices);
     await insertRows(tx, scheduledOutages, network.scheduledOutages);
+    await tx
+      .insert(appMetadata)
+      .values({
+        key: 'network_seed',
+        value: String(network.seed),
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: appMetadata.key,
+        set: {
+          value: String(network.seed),
+          updatedAt: new Date(),
+        },
+      });
   });
 
   await mkdir(path.dirname(groundTruthPath), { recursive: true });

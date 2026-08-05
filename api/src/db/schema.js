@@ -105,6 +105,19 @@ export const devices = pgTable(
   (table) => [index('devices_pole_id_idx').on(table.poleId)],
 );
 
+export const silencedDevices = pgTable(
+  'silenced_devices',
+  {
+    deviceId: text('device_id')
+      .primaryKey()
+      .references(() => devices.deviceId),
+    poleId: text('pole_id').references(() => poles.poleId),
+    reason: text('reason').notNull().default('simulator dead sensor'),
+    silencedAt: timestampTz('silenced_at').notNull().defaultNow(),
+  },
+  (table) => [index('silenced_devices_pole_id_idx').on(table.poleId)],
+);
+
 export const telemetryEvents = pgTable(
   'telemetry_events',
   {
@@ -170,6 +183,12 @@ export const scheduledOutages = pgTable(
     ),
   ],
 );
+
+export const appMetadata = pgTable('app_metadata', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+});
 
 export const incidents = pgTable(
   'incidents',
@@ -355,6 +374,18 @@ export const devicesRelations = relations(devices, ({ one, many }) => ({
     relationName: 'pole_current_device',
   }),
   telemetryEvents: many(telemetryEvents),
+  silencedDevice: many(silencedDevices),
+}));
+
+export const silencedDevicesRelations = relations(silencedDevices, ({ one }) => ({
+  device: one(devices, {
+    fields: [silencedDevices.deviceId],
+    references: [devices.deviceId],
+  }),
+  pole: one(poles, {
+    fields: [silencedDevices.poleId],
+    references: [poles.poleId],
+  }),
 }));
 
 export const telemetryEventsRelations = relations(
