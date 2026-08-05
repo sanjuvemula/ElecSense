@@ -61,6 +61,8 @@ export default function App() {
   const [selectedDtId, setSelectedDtId] = useState(null);
   const [selectedFeederId, setSelectedFeederId] = useState(null);
   const [selectedPoleId, setSelectedPoleId] = useState(null);
+  const [selectedMaintenanceScope, setSelectedMaintenanceScope] =
+    useState('dt');
   const [incidentDetails, setIncidentDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
@@ -320,6 +322,7 @@ export default function App() {
       selectedDtId,
       selectedFeederId,
       selectedPoleId,
+      selectedMaintenanceScope,
       selectedIncidentId: selectedDetailIncident?.id ?? selectedIncidentId,
     });
 
@@ -386,6 +389,7 @@ export default function App() {
         selectedPoleId={selectedPoleId}
         selectedDtId={selectedDtId}
         selectedFeederId={selectedFeederId}
+        selectedMaintenanceScope={selectedMaintenanceScope}
         incidentsLoading={incidentsPoll.loading}
         incidentsError={incidentsPoll.error}
         incidentDetails={incidentDetails}
@@ -403,6 +407,7 @@ export default function App() {
         onMapPoleSelect={handleMapPoleSelect}
         onSelectDt={setSelectedDtId}
         onSelectFeeder={setSelectedFeederId}
+        onSelectMaintenanceScope={setSelectedMaintenanceScope}
         onCrewNoteChange={setCrewNote}
         onResolutionNoteChange={setResolutionNote}
         onAction={runWorkflowAction}
@@ -428,6 +433,7 @@ export function OperatorConsole({
   selectedPoleId,
   selectedDtId,
   selectedFeederId,
+  selectedMaintenanceScope,
   incidentsLoading,
   incidentsError,
   incidentDetails,
@@ -445,6 +451,7 @@ export function OperatorConsole({
   onMapPoleSelect,
   onSelectDt,
   onSelectFeeder,
+  onSelectMaintenanceScope,
   onCrewNoteChange,
   onResolutionNoteChange,
   onAction,
@@ -495,6 +502,7 @@ export function OperatorConsole({
             selectedDtId={selectedDtId}
             selectedFeederId={selectedFeederId}
             selectedPoleId={selectedPoleId}
+            selectedMaintenanceScope={selectedMaintenanceScope}
             selectedIncidentId={
               selectedDetailIncident?.id ?? selectedIncidentId
             }
@@ -503,6 +511,7 @@ export function OperatorConsole({
             onSelectDt={onSelectDt}
             onSelectFeeder={onSelectFeeder}
             onSelectPole={onSelectPole}
+            onSelectMaintenanceScope={onSelectMaintenanceScope}
             onSelectIncident={onSelectIncident}
             onRun={onRunSimulator}
           />
@@ -1419,12 +1428,14 @@ export function SimulatorDock({
   selectedDtId,
   selectedFeederId,
   selectedPoleId,
+  selectedMaintenanceScope,
   selectedIncidentId,
   loading,
   result,
   onSelectDt,
   onSelectFeeder,
   onSelectPole,
+  onSelectMaintenanceScope,
   onSelectIncident,
   onRun,
 }) {
@@ -1501,11 +1512,24 @@ export function SimulatorDock({
                 ))}
               </select>
             </label>
+
+            <label>
+              Maintenance Scope
+              <select
+                value={selectedMaintenanceScope}
+                onChange={(event) =>
+                  onSelectMaintenanceScope(event.target.value)
+                }
+              >
+                <option value="dt">DT</option>
+                <option value="feeder">Feeder</option>
+              </select>
+            </label>
           </div>
 
           <div className="simulator-actions create-fault-actions">
             <SimulatorButton
-              icon="⚡"
+              icon="!"
               label="Inject Span Fault"
               kind="span"
               loading={loading}
@@ -1513,7 +1537,7 @@ export function SimulatorDock({
               onRun={onRun}
             />
             <SimulatorButton
-              icon="⌁"
+              icon="DT"
               label="DT Fault"
               kind="dt"
               loading={loading}
@@ -1521,7 +1545,7 @@ export function SimulatorDock({
               onRun={onRun}
             />
             <SimulatorButton
-              icon="⎋"
+              icon="F"
               label="Feeder Fault"
               kind="feeder"
               loading={loading}
@@ -1529,9 +1553,47 @@ export function SimulatorDock({
               onRun={onRun}
             />
             <SimulatorButton
-              icon="⊘"
+              icon="X"
               label="Dead Sensor"
               kind="dead-sensor"
+              loading={loading}
+              disabled={!selectedPoleId}
+              onRun={onRun}
+            />
+            <SimulatorButton
+              icon="MW"
+              label="Trigger Maintenance Window"
+              kind="scheduled-outage"
+              loading={loading}
+              disabled={
+                selectedMaintenanceScope === 'feeder'
+                  ? !selectedFeederId
+                  : !selectedDtId
+              }
+              onRun={onRun}
+            />
+          </div>
+        </section>
+
+        <section className="simulator-workflow telemetry-demo-workflow">
+          <div className="workflow-heading">
+            <p className="section-label">Telemetry Packet Demos</p>
+            <span>Exercise ingestion safeguards without creating incidents</span>
+          </div>
+
+          <div className="simulator-actions telemetry-demo-actions">
+            <SimulatorButton
+              icon="2x"
+              label="Send Duplicate Packet"
+              kind="duplicate-telemetry"
+              loading={loading}
+              disabled={!selectedPoleId}
+              onRun={onRun}
+            />
+            <SimulatorButton
+              icon="<>"
+              label="Send Out-of-Order Packets"
+              kind="out-of-order-telemetry"
               loading={loading}
               disabled={!selectedPoleId}
               onRun={onRun}
@@ -1566,7 +1628,7 @@ export function SimulatorDock({
 
           <div className="simulator-actions manage-incident-actions">
             <SimulatorButton
-              icon="↻"
+              icon="R"
               label="Repair"
               kind="repair"
               loading={loading}
@@ -1624,6 +1686,7 @@ function buildSimulatorRequest({
   selectedDtId,
   selectedFeederId,
   selectedPoleId,
+  selectedMaintenanceScope,
   selectedIncidentId,
 }) {
   const requests = {
@@ -1652,6 +1715,31 @@ function buildSimulatorRequest({
     'dead-sensor': {
       label: 'Dead Sensor Simulated',
       path: '/api/simulator/dead-sensor',
+      body: {
+        poleId: selectedPoleId,
+      },
+    },
+    'scheduled-outage': {
+      label: 'Maintenance Window Triggered',
+      path: '/api/simulator/scheduled-outage',
+      body: {
+        scope: selectedMaintenanceScope,
+        targetId:
+          selectedMaintenanceScope === 'feeder'
+            ? selectedFeederId
+            : selectedDtId,
+      },
+    },
+    'duplicate-telemetry': {
+      label: 'Duplicate Packet Sent',
+      path: '/api/simulator/duplicate-telemetry',
+      body: {
+        poleId: selectedPoleId,
+      },
+    },
+    'out-of-order-telemetry': {
+      label: 'Out-of-Order Packets Sent',
+      path: '/api/simulator/out-of-order-telemetry',
       body: {
         poleId: selectedPoleId,
       },
@@ -2117,6 +2205,25 @@ function getStatusColor(status) {
 function summarizeSimulatorResult(result) {
   if (!result) {
     return 'Simulator request completed.';
+  }
+
+  if (result.type === 'scheduled_outage') {
+    const telemetryCount = result.telemetry?.generatedEventCount ?? 0;
+    const detectionCount = result.detection?.createdIncidentCount ?? 0;
+
+    return `Maintenance window active for ${result.scope} ${result.targetId}. ${telemetryCount} dark telemetry events sent; ${detectionCount} incidents created.`;
+  }
+
+  if (result.type === 'duplicate_telemetry') {
+    return `${result.sent} packets sent for ${result.poleId}; ${result.persisted} persisted and ${result.deduped} deduped.`;
+  }
+
+  if (result.type === 'out_of_order_telemetry') {
+    const sentSeqs = (result.sent ?? [])
+      .map((event) => event.seq)
+      .join(' then ');
+
+    return `Sent seq ${sentSeqs} for ${result.poleId}; authoritative seq ${result.winner?.seq} won.`;
   }
 
   const telemetryCount = result.telemetry?.generatedEventCount ?? 0;

@@ -4,8 +4,10 @@ import { db } from '../db/index.js';
 import {
   getSimulatorNetwork,
   injectDeadSensor,
+  injectDuplicateTelemetry,
   injectDtFault,
   injectFeederFault,
+  injectOutOfOrderTelemetry,
   injectScheduledOutage,
   injectSpanFault,
   repairFault,
@@ -86,6 +88,30 @@ router.post('/scheduled-outage', async (req, res, next) => {
   try {
     res.status(202).json(
       await injectScheduledOutage(req.body, {
+        db: requireDatabase(),
+      }),
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/duplicate-telemetry', async (req, res, next) => {
+  try {
+    res.status(202).json(
+      await injectDuplicateTelemetry(req.body, {
+        db: requireDatabase(),
+      }),
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/out-of-order-telemetry', async (req, res, next) => {
+  try {
+    res.status(202).json(
+      await injectOutOfOrderTelemetry(req.body, {
         db: requireDatabase(),
       }),
     );

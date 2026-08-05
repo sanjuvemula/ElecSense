@@ -1159,7 +1159,7 @@ h1 {
 }
 
 .create-fault-selects {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 0;
 }
 
@@ -1176,7 +1176,16 @@ h1 {
 }
 
 .create-fault-actions {
-  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  grid-template-columns: repeat(5, minmax(140px, 1fr));
+}
+
+.telemetry-demo-workflow {
+  padding-top: 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.telemetry-demo-actions {
+  grid-template-columns: repeat(2, minmax(180px, 260px));
 }
 
 .manage-incident-actions {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { access } from 'node:fs/promises';
 import test from 'node:test';
 
+import { and, count, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
@@ -13,6 +14,9 @@ import {
   createFaultTelemetryPlan,
   createLiveHeartbeatPlan,
   createRepairTelemetryPlan,
+  injectDuplicateTelemetry,
+  injectOutOfOrderTelemetry,
+  injectScheduledOutage,
   injectSpanFault,
 } from './simulator.js';
 
@@ -194,6 +198,208 @@ test('span fault injection succeeds against a seeded database DT', async (t) => 
     await client.end();
   }
 });
+
+test('scheduled outage injects dark telemetry without creating incidents', async (t) => {
+  const harness = await openDatabaseHarness(t, { requireGroundTruth: true });
+
+  if (!harness) {
+    return;
+  }
+
+  const { database, groundTruthPath, client } = harness;
+
+  try {
+    const target = await pickSeededDtWithDevice(database);
+    const incidentTotalBefore = await countIncidents(database);
+    const result = await injectScheduledOutage(
+      { scope: 'dt', targetId: target.dtId },
+      {
+        db: database,
+        groundTruthPath,
+        now: new Date(),
+        runDetection: true,
+      },
+    );
+    const incidentTotalAfter = await countIncidents(database);
+
+    assert.equal(result.type, 'scheduled_outage');
+    assert.equal(result.outage.scope, 'dt');
+    assert.equal(result.outage.targetId, target.dtId);
+    assert.ok(result.telemetry.generatedEventCount > 0);
+    assert.equal(result.detection.createdIncidentCount, 0);
+    assert.equal(incidentTotalAfter, incidentTotalBefore);
+  } finally {
+    await client.end();
+  }
+});
+
+test('duplicate telemetry demo persists only one duplicate packet', async (t) => {
+  const harness = await openDatabaseHarness(t);
+
+  if (!harness) {
+    return;
+  }
+
+  const { database, client } = harness;
+
+  try {
+    const target = await pickTelemetryDemoPole(database);
+    const result = await injectDuplicateTelemetry(
+      { poleId: target.poleId },
+      { db: database, now: new Date() },
+    );
+    const persistedRows = await countTelemetryRows(database, result.event);
+
+    assert.equal(result.type, 'duplicate_telemetry');
+    assert.equal(result.sent, 2);
+    assert.equal(result.persisted, 1);
+    assert.equal(result.deduped, 1);
+    assert.equal(persistedRows, 1);
+  } finally {
+    await client.end();
+  }
+});
+
+test('out-of-order telemetry keeps the higher sequence authoritative', async (t) => {
+  const harness = await openDatabaseHarness(t);
+
+  if (!harness) {
+    return;
+  }
+
+  const { database, client } = harness;
+
+  try {
+    const target = await pickTelemetryDemoPole(database);
+    const result = await injectOutOfOrderTelemetry(
+      { poleId: target.poleId },
+      { db: database, now: new Date() },
+    );
+    const [pole] = await database
+      .select({ lastSeq: schema.poles.lastSeq })
+      .from(schema.poles)
+      .where(eq(schema.poles.poleId, target.poleId))
+      .limit(1);
+
+    assert.equal(result.type, 'out_of_order_telemetry');
+    assert.deepEqual(
+      result.sent.map((event) => event.seq),
+      [result.winner.expectedSeq, result.winner.expectedSeq - 1],
+    );
+    assert.equal(result.winner.seq, result.winner.expectedSeq);
+    assert.equal(pole.lastSeq, result.winner.expectedSeq);
+  } finally {
+    await client.end();
+  }
+});
+
+async function openDatabaseHarness(t, { requireGroundTruth = false } = {}) {
+  const databaseUrl = process.env.DATABASE_URL;
+  const groundTruthPath = process.env.GROUND_TRUTH_PATH;
+
+  if (!databaseUrl) {
+    t.skip('requires DATABASE_URL');
+    return null;
+  }
+
+  if (requireGroundTruth && !groundTruthPath) {
+    t.skip('requires GROUND_TRUTH_PATH');
+    return null;
+  }
+
+  if (requireGroundTruth) {
+    try {
+      await access(groundTruthPath);
+    } catch {
+      t.skip(`requires readable ground truth at ${groundTruthPath}`);
+      return null;
+    }
+  }
+
+  const client = postgres(databaseUrl, { max: 1 });
+
+  try {
+    await client`select 1`;
+  } catch (error) {
+    await client.end().catch(() => {});
+    t.skip(`requires reachable database: ${error.message}`);
+    return null;
+  }
+
+  return {
+    client,
+    database: drizzle(client, { schema }),
+    groundTruthPath,
+  };
+}
+
+async function pickSeededDtWithDevice(database) {
+  const row = (await fetchTelemetryDemoPoleRows(database)).find(
+    (pole) => pole.dtId,
+  );
+
+  assert.ok(row?.dtId, 'expected a seeded database DT with a reporting pole');
+
+  return row;
+}
+
+async function pickTelemetryDemoPole(database) {
+  const row = (await fetchTelemetryDemoPoleRows(database))[0];
+
+  assert.ok(row?.poleId, 'expected a seeded reporting demo pole');
+
+  return row;
+}
+
+async function fetchTelemetryDemoPoleRows(database) {
+  const [poleRows, silencedRows] = await Promise.all([
+    database
+      .select({
+        poleId: schema.poles.poleId,
+        dtId: schema.poles.dtId,
+        deviceId: schema.poles.deviceId,
+        fwVersion: schema.devices.fwVersion,
+      })
+      .from(schema.poles)
+      .leftJoin(schema.devices, eq(schema.poles.deviceId, schema.devices.deviceId))
+      .orderBy(schema.poles.poleId),
+    database
+      .select({ deviceId: schema.silencedDevices.deviceId })
+      .from(schema.silencedDevices),
+  ]);
+  const silencedDeviceIds = new Set(silencedRows.map((row) => row.deviceId));
+
+  return poleRows.filter(
+    (pole) =>
+      pole.deviceId &&
+      !silencedDeviceIds.has(pole.deviceId) &&
+      !pole.fwVersion?.startsWith('1.2'),
+  );
+}
+
+async function countTelemetryRows(database, event) {
+  const [{ value }] = await database
+    .select({ value: count() })
+    .from(schema.telemetryEvents)
+    .where(
+      and(
+        eq(schema.telemetryEvents.deviceId, event.deviceId),
+        eq(schema.telemetryEvents.seq, event.seq),
+        eq(
+          schema.telemetryEvents.deviceTsSecond,
+          new Date(Math.floor(new Date(event.deviceTs).getTime() / 1000) * 1000),
+        ),
+      ),
+    );
+
+  return value;
+}
+
+async function countIncidents(database) {
+  const [{ value }] = await database.select({ value: count() }).from(schema.incidents);
+
+  return value;
+}
 
 function truthPole(poleId, trueParentPoleId) {
   return {

@@ -27,7 +27,7 @@ const DEFAULT_GROUND_TRUTH_PATH = path.resolve(
   '../db/seed/groundTruth.json',
 );
 const DEFAULT_POWER_LOST_PROBABILITY = 0.7;
-const DEFAULT_SCHEDULED_OUTAGE_DURATION_MINUTES = 90;
+const DEFAULT_SCHEDULED_OUTAGE_DURATION_MINUTES = 30;
 const DEFAULT_BATTERY_MV = 3850;
 const DEFAULT_RSSI = -72;
 const DEFAULT_FIRMWARE = '1.4.2';
@@ -285,29 +285,39 @@ export async function injectScheduledOutage(input = {}, options = {}) {
   const now = normalizeDate(options.now ?? new Date());
   const truth = await loadGroundTruth(database, options);
   const tree = buildTruthTree(truth.poles);
-  const dtId = input.dtId ?? pickRandomDtId(tree, rng);
+  const scope = input.scope ?? (input.feederId ? 'feeder' : 'dt');
+  const targetId =
+    input.targetId ??
+    (scope === 'feeder'
+      ? input.feederId
+      : input.dtId ?? pickRandomDtId(tree, rng));
 
-  if (!dtId) {
-    throwHttpError(404, 'No DTs are available in ground-truth topology.');
+  if (!['dt', 'feeder'].includes(scope)) {
+    throwHttpError(400, "scope must be 'dt' or 'feeder'.");
   }
 
-  const affectedPoleIds = getPoleIdsForDt(tree, dtId);
+  if (!targetId) {
+    throwHttpError(400, 'targetId is required.');
+  }
+
+  const affectedPoleIds =
+    scope === 'feeder'
+      ? getPoleIdsForFeeder(tree, targetId)
+      : getPoleIdsForDt(tree, targetId);
 
   if (affectedPoleIds.length === 0) {
-    throwHttpError(404, `DT not found in ground-truth topology: ${dtId}`);
+    throwHttpError(
+      404,
+      `${scope === 'feeder' ? 'Feeder' : 'DT'} not found in ground-truth topology: ${targetId}`,
+    );
   }
 
   const startsAt = addMinutes(now, -5);
-  const endsAt = addMinutes(
-    now,
-    Number(input.durationMinutes) > 0
-      ? Number(input.durationMinutes)
-      : DEFAULT_SCHEDULED_OUTAGE_DURATION_MINUTES,
-  );
+  const endsAt = addMinutes(now, DEFAULT_SCHEDULED_OUTAGE_DURATION_MINUTES);
   const outage = {
     id: `SIM-SO-${randomUUID()}`,
-    scope: 'dt',
-    targetId: dtId,
+    scope,
+    targetId,
     startsAt,
     endsAt,
     reason: input.reason ?? 'simulator planned outage',
@@ -336,11 +346,108 @@ export async function injectScheduledOutage(input = {}, options = {}) {
   return {
     type: 'scheduled_outage',
     outage,
-    dtId,
+    scope,
+    targetId,
+    dtId: scope === 'dt' ? targetId : null,
+    feederId: scope === 'feeder' ? targetId : null,
     affectedPoleCount: affectedPoleIds.length,
     affectedPoleIds,
     telemetry: summarizeTelemetryPlan(telemetryPlan, ingestion),
     detection,
+  };
+}
+
+export async function injectDuplicateTelemetry(input = {}, options = {}) {
+  const database = requireDatabase(options.db);
+  const rng = options.rng ?? Math.random;
+  const now = normalizeDate(options.now ?? new Date());
+  const state = await pickTelemetryDemoPole(database, input.poleId, rng);
+  const event = createTelemetryEvent({
+    state,
+    event: 'heartbeat',
+    energized: true,
+    seq: nextSeq(state),
+    deviceTs: now,
+  });
+  const firstIngestion = await ingestTelemetryEvents(database, [event]);
+  const secondIngestion = await ingestTelemetryEvents(database, [event]);
+  const sent = 2;
+  const persisted = firstIngestion.stored + secondIngestion.stored;
+  const accepted = firstIngestion.accepted + secondIngestion.accepted;
+
+  return {
+    type: 'duplicate_telemetry',
+    poleId: state.poleId,
+    deviceId: state.deviceId,
+    sent,
+    persisted,
+    deduped: sent - persisted,
+    accepted,
+    ignored: sent - accepted,
+    event: summarizeTelemetryEvent(event),
+    ingestion: {
+      first: firstIngestion,
+      second: secondIngestion,
+    },
+  };
+}
+
+export async function injectOutOfOrderTelemetry(input = {}, options = {}) {
+  const database = requireDatabase(options.db);
+  const rng = options.rng ?? Math.random;
+  const now = normalizeDate(options.now ?? new Date());
+  const state = await pickTelemetryDemoPole(database, input.poleId, rng);
+  const baseSeq = Number(state.deviceLastSeq ?? state.lastSeq ?? 0);
+  const lowerSeq = baseSeq + 1;
+  const higherSeq = baseSeq + 2;
+  const higherEvent = createTelemetryEvent({
+    state,
+    event: 'heartbeat',
+    energized: true,
+    seq: higherSeq,
+    deviceTs: now,
+  });
+  const lowerEvent = createTelemetryEvent({
+    state,
+    event: 'heartbeat',
+    energized: true,
+    seq: lowerSeq,
+    deviceTs: addSeconds(now, 1),
+  });
+  const firstIngestion = await ingestTelemetryEvents(database, [higherEvent]);
+  const secondIngestion = await ingestTelemetryEvents(database, [lowerEvent]);
+  const current = await fetchDeviceStateByPoleId(database, state.poleId);
+  const authoritativeSeq = Number(
+    current?.deviceLastSeq ?? current?.lastSeq ?? 0,
+  );
+
+  if (authoritativeSeq !== higherSeq) {
+    throwHttpError(
+      500,
+      `Out-of-order telemetry failed: expected authoritative seq ${higherSeq}, got ${authoritativeSeq}.`,
+    );
+  }
+
+  return {
+    type: 'out_of_order_telemetry',
+    poleId: state.poleId,
+    deviceId: state.deviceId,
+    sent: [
+      summarizeTelemetryEvent(higherEvent),
+      summarizeTelemetryEvent(lowerEvent),
+    ],
+    persisted: firstIngestion.stored + secondIngestion.stored,
+    accepted: firstIngestion.accepted + secondIngestion.accepted,
+    ignored: firstIngestion.ignored + secondIngestion.ignored,
+    winner: {
+      seq: authoritativeSeq,
+      expectedSeq: higherSeq,
+      event: summarizeTelemetryEvent(higherEvent),
+    },
+    ingestion: {
+      first: firstIngestion,
+      second: secondIngestion,
+    },
   };
 }
 
@@ -1015,6 +1122,68 @@ function summarizeTelemetryPlan(plan, ingestion) {
     skipped: plan.skipped,
     ingestion,
   };
+}
+
+function summarizeTelemetryEvent(event) {
+  return {
+    deviceId: event.deviceId,
+    poleId: event.poleId,
+    event: event.event,
+    energized: event.energized,
+    seq: event.seq,
+    deviceTs: normalizeDate(event.deviceTs).toISOString(),
+  };
+}
+
+async function pickTelemetryDemoPole(database, poleId, rng) {
+  const rows = poleId
+    ? (await fetchPoleDeviceStates(database, [poleId])).rows
+    : await fetchAllPoleDeviceStates(database);
+  const statesByPoleId = new Map(rows.map((row) => [row.poleId, row]));
+
+  if (poleId && !statesByPoleId.has(poleId)) {
+    throwHttpError(404, `Pole not found: ${poleId}`);
+  }
+
+  const silencedDeviceIds = await fetchSilencedDeviceIdsForStates(
+    database,
+    statesByPoleId,
+  );
+  const candidates = rows
+    .filter(
+      (state) =>
+        state.deviceId &&
+        !silencedDeviceIds.has(state.deviceId) &&
+        !isLegacySilentFirmware(state.fwVersion),
+    )
+    .sort((left, right) => compareIds(left.poleId, right.poleId));
+
+  if (poleId) {
+    const state = rows[0];
+
+    if (!state?.deviceId) {
+      throwHttpError(409, `Pole ${poleId} does not have a telemetry device.`);
+    }
+
+    if (silencedDeviceIds.has(state.deviceId)) {
+      throwHttpError(409, `Pole ${poleId} is currently silenced.`);
+    }
+
+    if (isLegacySilentFirmware(state.fwVersion)) {
+      throwHttpError(
+        409,
+        `Pole ${poleId} uses legacy silent firmware and is not suitable for packet demos.`,
+      );
+    }
+
+    return state;
+  }
+
+  if (candidates.length === 0) {
+    throwHttpError(404, 'No currently-reporting poles are available.');
+  }
+
+  return candidates[Math.floor(rng() * candidates.length)];
 }
 
 function pickRandomFaultablePole({
