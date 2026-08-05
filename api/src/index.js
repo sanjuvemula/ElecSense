@@ -8,8 +8,18 @@ import healthRoutes from './routes/health.js';
 import incidentRoutes from './routes/incidents.js';
 import simulatorRoutes from './routes/simulator.js';
 import telemetryRoutes from './routes/telemetry.js';
-
+import cors from 'cors';
 const app = express();
+
+app.use(
+  cors({
+    origin: [
+      'https://elec-sense-web.vercel.app',
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true,
+  })
+);
 const port = Number(process.env.PORT) || 3000;
 
 app.use(express.json({ limit: '5mb' }));

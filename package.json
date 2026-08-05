@@ -11,5 +11,8 @@
     "dev:api": "npm run dev -w api",
     "dev:web": "npm run dev -w web",
     "lint": "npm run lint -w api && npm run lint -w web"
+  },
+  "dependencies": {
+    "cors": "^2.8.6"
   }
 }
