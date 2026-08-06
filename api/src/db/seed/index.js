@@ -38,29 +38,27 @@ try {
     .select({ value: count() })
     .from(poles);
 
-  // Always regenerate the groundTruth.json file on every deployment.
-// If the DB is empty, it will also seed the database.
+  if (poleCount > 0) {
+    console.log(
+      `Seed skipped: poles table already contains ${poleCount} rows.`,
+    );
+  } else {
+    const result = await generateNetwork(db, { seed, groundTruthPath });
 
-const result = await generateNetwork(db, {
-  seed,
-  groundTruthPath,
-});
-
-console.log(
-  [
-    poleCount > 0
-      ? 'Ground truth regenerated.'
-      : 'Synthetic network seeded.',
-    `seed=${result.seed}`,
-    `feeders=${result.counts.feeders}`,
-    `dts=${result.counts.dts}`,
-    `poles=${result.counts.poles}`,
-    `devices=${result.counts.devices}`,
-    `scheduled_outages=${result.counts.scheduledOutages}`,
-    `stripped_dts=${result.strippedDtIds.length}`,
-    `ground_truth=${result.groundTruthPath}`,
-  ].join(' '),
-);
+    console.log(
+      [
+        'Synthetic network seeded.',
+        `seed=${result.seed}`,
+        `feeders=${result.counts.feeders}`,
+        `dts=${result.counts.dts}`,
+        `poles=${result.counts.poles}`,
+        `devices=${result.counts.devices}`,
+        `scheduled_outages=${result.counts.scheduledOutages}`,
+        `stripped_dts=${result.strippedDtIds.length}`,
+        `ground_truth=${result.groundTruthPath}`,
+      ].join(' '),
+    );
+  }
 } finally {
   await client.end();
 }

@@ -17,12 +17,13 @@
   },
   "dependencies": {
     "@google/genai": "^2.15.0",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.7",
+    "drizzle-kit": "^0.31.0",
     "drizzle-orm": "^0.44.0",
     "express": "^5.1.0",
     "postgres": "^3.4.7",
     "seedrandom": "^3.0.5",
-     "drizzle-kit": "^0.31.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
