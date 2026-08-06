@@ -247,12 +247,7 @@ export async function generateNetwork(db, options = {}) {
       });
   });
 
-  await mkdir(path.dirname(groundTruthPath), { recursive: true });
-  await writeFile(
-    groundTruthPath,
-    `${JSON.stringify(network.groundTruth, null, 2)}\n`,
-    'utf8',
-  );
+  await writeGroundTruthFile(network.groundTruth, groundTruthPath);
 
   return {
     seed: network.seed,
@@ -261,6 +256,31 @@ export async function generateNetwork(db, options = {}) {
     groundTruthPath,
   };
 }
+
+export async function regenerateGroundTruthFile(options = {}) {
+  const network = createSyntheticNetwork(options);
+  const groundTruthPath = options.groundTruthPath ?? DEFAULT_GROUND_TRUTH_PATH;
+
+  await writeGroundTruthFile(network.groundTruth, groundTruthPath);
+
+  return {
+    seed: network.seed,
+    counts: network.groundTruth.counts,
+    strippedDtIds: network.groundTruth.strippedDtIds,
+    groundTruthPath,
+  };
+}
+
+async function writeGroundTruthFile(groundTruth, groundTruthPath) {
+  await mkdir(path.dirname(groundTruthPath), { recursive: true });
+  await writeFile(
+    groundTruthPath,
+    `${JSON.stringify(groundTruth, null, 2)}\n`,
+    'utf8',
+  );
+}
+
+
 
 function buildDtTopology({ rng, dt, poleCount, nextPole, pincodeChoices }) {
   const branchCount = clamp(
