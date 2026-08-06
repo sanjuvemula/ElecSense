@@ -126,6 +126,7 @@ export async function injectDtFault(input, options = {}) {
     silencedDeviceIds,
     now,
     rng,
+    powerLostProbability: 1,
   });
   const ingestion = await ingestTelemetryPlan(database, telemetryPlan);
   const detection = await maybeRunDetection(database, now, options);
@@ -236,6 +237,9 @@ export async function injectDeadSensor(input, options = {}) {
     poleId,
     deviceId: target.deviceId,
     silenced: true,
+    affectedPoleCount: 1,
+    affectedPoleIds: [poleId],
+    neighborPoleIds,
     generatedEventCount: 0,
     neighborLiveEventCount: telemetryPlan.events.length,
     message:

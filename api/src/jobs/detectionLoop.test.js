@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   buildActiveOutageSet,
   DARK_DEBOUNCE_MS,
+  findMatchingOpenIncident,
   runDetectionOnce,
   selectConfirmedDarkPoles,
   summarizeCurrentDarkRun,
@@ -292,11 +293,128 @@ test('runtime downgrades stale feeder scope before localizing remaining dark DTs
   assert.equal(result.createdIncidentCount, 1);
 });
 
+test('feeder incident candidates do not update open span incidents on the same feeder', async () => {
+  const database = makeIncidentMatchDb({
+    openIncidents: [
+      {
+        id: 'span-incident',
+        type: 'span',
+        boundaryPoleId: null,
+      },
+    ],
+    incidentPoles: [
+      {
+        incidentId: 'span-incident',
+        poleId: 'A1',
+      },
+    ],
+  });
+
+  const match = await findMatchingOpenIncident(
+    database,
+    makeIncident({
+      type: 'feeder',
+      dtId: null,
+      feederId: 'F-01',
+      affectedPoleIds: ['A1', 'A2', 'B1', 'B2'],
+    }),
+  );
+
+  assert.equal(match, null);
+});
+
+test('feeder incident candidates still update existing feeder incidents', async () => {
+  const database = makeIncidentMatchDb({
+    openIncidents: [
+      {
+        id: 'span-incident',
+        type: 'span',
+        boundaryPoleId: null,
+      },
+      {
+        id: 'feeder-incident',
+        type: 'feeder',
+        boundaryPoleId: null,
+      },
+    ],
+    incidentPoles: [
+      {
+        incidentId: 'span-incident',
+        poleId: 'A1',
+      },
+      {
+        incidentId: 'feeder-incident',
+        poleId: 'B1',
+      },
+    ],
+  });
+
+  const match = await findMatchingOpenIncident(
+    database,
+    makeIncident({
+      type: 'feeder',
+      dtId: null,
+      feederId: 'F-01',
+      affectedPoleIds: ['A1', 'A2', 'B1', 'B2'],
+    }),
+  );
+
+  assert.equal(match.id, 'feeder-incident');
+});
+
+test('DT incident candidates do not update open span incidents in the same DT', async () => {
+  const database = makeIncidentMatchDb({
+    openIncidents: [
+      {
+        id: 'span-incident',
+        type: 'span',
+        boundaryPoleId: null,
+      },
+    ],
+    incidentPoles: [
+      {
+        incidentId: 'span-incident',
+        poleId: 'A1',
+      },
+    ],
+  });
+
+  const match = await findMatchingOpenIncident(
+    database,
+    makeIncident({
+      type: 'dt',
+      dtId: 'DT-A',
+      feederId: 'F-01',
+      affectedPoleIds: ['A1', 'A2'],
+    }),
+  );
+
+  assert.equal(match, null);
+});
+
 function event(input) {
   return {
     deviceTs: new Date(input.receivedAt),
     receivedAt: new Date(input.receivedAt),
     ...input,
+  };
+}
+
+function makeIncidentMatchDb({ openIncidents, incidentPoles }) {
+  let selectCount = 0;
+
+  return {
+    select() {
+      selectCount += 1;
+
+      return {
+        from() {
+          return {
+            where: async () => (selectCount === 1 ? openIncidents : incidentPoles),
+          };
+        },
+      };
+    },
   };
 }
 

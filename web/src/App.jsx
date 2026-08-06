@@ -2210,9 +2210,14 @@ function summarizeSimulatorResult(result) {
 
   if (result.type === 'scheduled_outage') {
     const telemetryCount = result.telemetry?.generatedEventCount ?? 0;
-    const detectionCount = result.detection?.createdIncidentCount ?? 0;
 
-    return `Maintenance window active for ${result.scope} ${result.targetId}. ${telemetryCount} dark telemetry events sent; ${detectionCount} incidents created.`;
+    return `Maintenance window active for ${result.scope} ${result.targetId}. ${telemetryCount} dark telemetry events sent; incident creation is intentionally suppressed for this planned outage.`;
+  }
+
+  if (result.type === 'dead_sensor') {
+    const telemetryCount = result.telemetry?.generatedEventCount ?? 0;
+
+    return `Sensor ${result.deviceId} at ${result.poleId} was silenced. ${telemetryCount} live neighbor heartbeats were sent for contrast.`;
   }
 
   if (result.type === 'duplicate_telemetry') {

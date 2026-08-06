@@ -98,6 +98,7 @@ export async function runDetectionOnce(options = {}) {
   const markOpenFeederIncidentsDowngradedFn =
     options.markOpenFeederIncidentsDowngraded ??
     markOpenFeederIncidentsDowngraded;
+  const logger = options.logger ?? console;
   const now = normalizeDate(options.now ?? new Date());
   const outageRows = await fetchScheduledOutagesFn(database);
   const activeOutages = buildActiveOutageSet(outageRows, now);
@@ -146,6 +147,12 @@ export async function runDetectionOnce(options = {}) {
         feederId,
         incidentCandidates: feederIncidents.length,
         ...persistence,
+      });
+      logger.info?.('Feeder fault detection persisted.', {
+        feederId,
+        incidentCandidates: feederIncidents.length,
+        createdIncidentCount: persistence.createdIncidentCount,
+        updatedIncidentCount: persistence.updatedIncidentCount,
       });
     } else {
       downgradedFeederIds.push(feederId);
@@ -407,24 +414,29 @@ async function persistLocalizedIncidents(database, incidentCandidates, now) {
   };
 }
 
-async function findMatchingOpenIncident(database, candidate) {
+export async function findMatchingOpenIncident(database, candidate) {
   const scopeClause = candidate.dtId
     ? eq(incidents.dtId, candidate.dtId)
     : eq(incidents.feederId, candidate.feederId);
   const openIncidents = await database
     .select({
       id: incidents.id,
+      type: incidents.type,
       boundaryPoleId: incidents.boundaryPoleId,
     })
     .from(incidents)
     .where(and(scopeClause, inArray(incidents.status, OPEN_INCIDENT_STATUSES)));
 
-  if (openIncidents.length === 0) {
+  const compatibleOpenIncidents = openIncidents.filter((incident) =>
+    isIncidentCompatibleWithCandidate(candidate, incident),
+  );
+
+  if (compatibleOpenIncidents.length === 0) {
     return null;
   }
 
   if (candidate.boundaryPoleId) {
-    const sameBoundary = openIncidents.find(
+    const sameBoundary = compatibleOpenIncidents.find(
       (incident) => incident.boundaryPoleId === candidate.boundaryPoleId,
     );
 
@@ -442,19 +454,23 @@ async function findMatchingOpenIncident(database, candidate) {
     .where(
       inArray(
         incidentPoles.incidentId,
-        openIncidents.map((incident) => incident.id),
+        compatibleOpenIncidents.map((incident) => incident.id),
       ),
     );
   const candidatePoleIds = new Set(candidate.affectedPoleIds);
 
   return (
-    openIncidents.find((incident) =>
+    compatibleOpenIncidents.find((incident) =>
       poleRows.some(
         (row) =>
           row.incidentId === incident.id && candidatePoleIds.has(row.poleId),
       ),
     ) ?? null
   );
+}
+
+function isIncidentCompatibleWithCandidate(candidate, incident) {
+  return incident.type === candidate.type;
 }
 
 async function createIncident(database, candidate, now) {
