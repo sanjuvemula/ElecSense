@@ -2,7 +2,12 @@ import { Router } from 'express';
 
 import { db } from '../db/index.js';
 import {
+  mutationLimiter,
+  requireOperatorToken,
+} from '../middleware/security.js';
+import {
   getSimulatorNetwork,
+  getSimulatorNetworkStates,
   injectDeadSensor,
   injectDuplicateTelemetry,
   injectDtFault,
@@ -24,7 +29,15 @@ router.get('/network', async (_req, res, next) => {
   }
 });
 
-router.post('/span-fault', async (req, res, next) => {
+router.get('/network/states', async (_req, res, next) => {
+  try {
+    res.json(await getSimulatorNetworkStates({ db: requireDatabase() }));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/span-fault', mutationLimiter, requireOperatorToken(), async (req, res, next) => {
   try {
     res.status(202).json(
       await injectSpanFault(req.body, {
@@ -36,7 +49,7 @@ router.post('/span-fault', async (req, res, next) => {
   }
 });
 
-router.post('/dt-fault', async (req, res, next) => {
+router.post('/dt-fault', mutationLimiter, requireOperatorToken(), async (req, res, next) => {
   try {
     res.status(202).json(
       await injectDtFault(req.body, {
@@ -48,7 +61,7 @@ router.post('/dt-fault', async (req, res, next) => {
   }
 });
 
-router.post('/feeder-fault', async (req, res, next) => {
+router.post('/feeder-fault', mutationLimiter, requireOperatorToken(), async (req, res, next) => {
   try {
     res.status(202).json(
       await injectFeederFault(req.body, {
@@ -60,7 +73,7 @@ router.post('/feeder-fault', async (req, res, next) => {
   }
 });
 
-router.post('/dead-sensor', async (req, res, next) => {
+router.post('/dead-sensor', mutationLimiter, requireOperatorToken(), async (req, res, next) => {
   try {
     res.status(202).json(
       await injectDeadSensor(req.body, {
@@ -72,7 +85,7 @@ router.post('/dead-sensor', async (req, res, next) => {
   }
 });
 
-router.post('/unsilence', async (req, res, next) => {
+router.post('/unsilence', mutationLimiter, requireOperatorToken(), async (req, res, next) => {
   try {
     res.status(202).json(
       await unsilenceDevice(req.body, {
@@ -84,7 +97,7 @@ router.post('/unsilence', async (req, res, next) => {
   }
 });
 
-router.post('/scheduled-outage', async (req, res, next) => {
+router.post('/scheduled-outage', mutationLimiter, requireOperatorToken(), async (req, res, next) => {
   try {
     res.status(202).json(
       await injectScheduledOutage(req.body, {
@@ -96,7 +109,7 @@ router.post('/scheduled-outage', async (req, res, next) => {
   }
 });
 
-router.post('/duplicate-telemetry', async (req, res, next) => {
+router.post('/duplicate-telemetry', mutationLimiter, requireOperatorToken(), async (req, res, next) => {
   try {
     res.status(202).json(
       await injectDuplicateTelemetry(req.body, {
@@ -108,7 +121,7 @@ router.post('/duplicate-telemetry', async (req, res, next) => {
   }
 });
 
-router.post('/out-of-order-telemetry', async (req, res, next) => {
+router.post('/out-of-order-telemetry', mutationLimiter, requireOperatorToken(), async (req, res, next) => {
   try {
     res.status(202).json(
       await injectOutOfOrderTelemetry(req.body, {
@@ -120,7 +133,7 @@ router.post('/out-of-order-telemetry', async (req, res, next) => {
   }
 });
 
-router.post('/repair/:incidentId', async (req, res, next) => {
+router.post('/repair/:incidentId', mutationLimiter, requireOperatorToken(), async (req, res, next) => {
   try {
     res.status(202).json(
       await repairFault(req.params.incidentId, {

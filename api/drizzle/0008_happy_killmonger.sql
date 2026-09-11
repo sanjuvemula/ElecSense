@@ -1,0 +1,1 @@
+ALTER TABLE "poles" ADD COLUMN "last_seq_device_id" text;

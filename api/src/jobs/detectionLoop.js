@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray } from 'drizzle-orm';
+import { and, eq, gte, inArray, sql } from 'drizzle-orm';
 
 import { db as defaultDb } from '../db/index.js';
 import {
@@ -23,6 +23,10 @@ export const OUTAGE_GRACE_BEFORE_MS = 15 * 60 * 1000;
 export const OUTAGE_GRACE_AFTER_MS = 45 * 60 * 1000;
 export const DARK_DEBOUNCE_MS = 45 * 1000;
 export const DARK_HISTORY_LOOKBACK_MS = 10 * 60 * 1000;
+
+// Arbitrary but stable key for the Postgres advisory lock that serialises
+// detection across instances. Any process that fails to take it skips its tick.
+export const DETECTION_LOCK_KEY = 4_814_233_001;
 
 const OPEN_INCIDENT_STATUSES = [
   'detected',
@@ -51,6 +55,8 @@ export function startDetectionLoop(options = {}) {
 
   // A fixed interval is simpler than wiring an ingestion event emitter, and a
   // 10s cadence leaves a very wide margin against the <120s detection target.
+  const withLock = options.withDetectionLock ?? withDetectionLock;
+
   const run = async () => {
     if (isRunning) {
       return;
@@ -59,7 +65,18 @@ export function startDetectionLoop(options = {}) {
     isRunning = true;
 
     try {
-      await runDetectionOnce({ ...options, db: database, now: new Date() });
+      // Guard against multiple instances (Render scales by process count):
+      // without this every replica would localize the same dark poles and race
+      // to create duplicate incidents for one fault.
+      const ran = await withLock(database, logger, (lockedDb) =>
+        runDetectionOnce({ ...options, db: lockedDb, now: new Date() }),
+      );
+
+      if (!ran) {
+        logger.debug?.(
+          'Detection tick skipped: another instance holds the lock.',
+        );
+      }
     } catch (error) {
       logger.error('Detection loop failed.', error);
     } finally {
@@ -72,6 +89,61 @@ export function startDetectionLoop(options = {}) {
   void run();
 
   return () => globalThis.clearInterval(timer);
+}
+
+/**
+ * Runs `task` only if this process can take the detection advisory lock.
+ *
+ * Uses a transaction-scoped lock rather than a session one. postgres-js pools
+ * connections, so a session lock taken by one `execute` could be released on a
+ * different connection and leak; `pg_try_advisory_xact_lock` is pinned to the
+ * transaction's connection and is released automatically on commit, rollback
+ * or connection loss. `task` receives the transaction and must use it, so all
+ * detection work runs on the connection that holds the lock.
+ */
+export async function withDetectionLock(database, logger, task) {
+  if (typeof database.transaction !== 'function') {
+    await task(database);
+
+    return true;
+  }
+
+  return database.transaction(async (transaction) => {
+    let acquired = false;
+
+    try {
+      const result = await transaction.execute(
+        sql`select pg_try_advisory_xact_lock(${DETECTION_LOCK_KEY}) as locked`,
+      );
+      acquired = readLockResult(result);
+    } catch (error) {
+      // A database that cannot offer advisory locks should not silently
+      // disable detection: fall back to running unlocked, which matches
+      // single-instance behaviour.
+      logger?.warn?.('Advisory lock unavailable; running detection unlocked.', {
+        reason: error.message,
+      });
+
+      await task(transaction);
+
+      return true;
+    }
+
+    if (!acquired) {
+      return false;
+    }
+
+    await task(transaction);
+
+    return true;
+  });
+}
+
+function readLockResult(result) {
+  const rows = Array.isArray(result) ? result : (result?.rows ?? []);
+  const value = rows[0]?.locked;
+
+  return value === true || value === 't' || value === 'true';
 }
 
 export async function runDetectionOnce(options = {}) {
@@ -397,13 +469,25 @@ async function persistLocalizedIncidents(database, incidentCandidates, now) {
   let updatedIncidentCount = 0;
 
   for (const candidate of incidentCandidates) {
-    const existing = await findMatchingOpenIncident(database, candidate);
+    // Each candidate is its own transaction. The incident row, its pole set and
+    // its audit event must land together: `replaceIncidentPoles` deletes before
+    // it inserts, so a crash mid-write would otherwise strand an incident with
+    // no affected poles, which can never auto-verify.
+    const outcome = await withTransaction(database, async (transaction) => {
+      const existing = await findMatchingOpenIncident(transaction, candidate);
 
-    if (existing) {
-      await updateExistingIncident(database, existing.id, candidate, now);
+      if (existing) {
+        await updateExistingIncident(transaction, existing.id, candidate, now);
+        return 'updated';
+      }
+
+      await createIncident(transaction, candidate, now);
+      return 'created';
+    });
+
+    if (outcome === 'updated') {
       updatedIncidentCount += 1;
     } else {
-      await createIncident(database, candidate, now);
       createdIncidentCount += 1;
     }
   }
@@ -412,6 +496,14 @@ async function persistLocalizedIncidents(database, incidentCandidates, now) {
     createdIncidentCount,
     updatedIncidentCount,
   };
+}
+
+async function withTransaction(database, run) {
+  if (typeof database.transaction === 'function') {
+    return database.transaction(run);
+  }
+
+  return run(database);
 }
 
 export async function findMatchingOpenIncident(database, candidate) {
@@ -535,7 +627,11 @@ async function logIncidentEvent(database, incidentId, eventType, payload) {
   });
 }
 
-async function markOpenFeederIncidentsDowngraded(database, feederIds, now) {
+export async function markOpenFeederIncidentsDowngraded(
+  database,
+  feederIds,
+  now,
+) {
   const uniqueFeederIds = [...new Set(feederIds)].filter(Boolean);
 
   if (uniqueFeederIds.length === 0) {
@@ -558,20 +654,22 @@ async function markOpenFeederIncidentsDowngraded(database, feederIds, now) {
     );
 
   for (const incident of openFeederIncidents) {
-    await database
-      .update(incidents)
-      .set({
-        status: 'verified',
-        verifiedAt: now,
-      })
-      .where(eq(incidents.id, incident.id));
-    await logIncidentEvent(database, incident.id, 'scope_downgraded', {
-      fromStatus: incident.status,
-      toStatus: 'verified',
-      feederId: incident.feederId,
-      downgradedAt: now.toISOString(),
-      reason:
-        'feeder no longer fully dark; remaining symptoms will be localized per DT',
+    await withTransaction(database, async (transaction) => {
+      await transaction
+        .update(incidents)
+        .set({
+          status: 'superseded',
+          supersededAt: now,
+        })
+        .where(eq(incidents.id, incident.id));
+      await logIncidentEvent(transaction, incident.id, 'scope_downgraded', {
+        fromStatus: incident.status,
+        toStatus: 'superseded',
+        feederId: incident.feederId,
+        downgradedAt: now.toISOString(),
+        reason:
+          'feeder no longer fully dark; remaining symptoms will be localized per DT',
+      });
     });
   }
 
@@ -610,16 +708,18 @@ async function autoVerifyIncidents(database, options = {}) {
       continue;
     }
 
-    await database
-      .update(incidents)
-      .set({
-        status: 'verified',
-        verifiedAt: now,
-      })
-      .where(eq(incidents.id, incident.id));
-    await logIncidentEvent(database, incident.id, 'auto_verified', {
-      verifiedAt: now.toISOString(),
-      reason: 'all affected poles reported live recently',
+    await withTransaction(database, async (transaction) => {
+      await transaction
+        .update(incidents)
+        .set({
+          status: 'verified',
+          verifiedAt: now,
+        })
+        .where(eq(incidents.id, incident.id));
+      await logIncidentEvent(transaction, incident.id, 'auto_verified', {
+        verifiedAt: now.toISOString(),
+        reason: 'all affected poles reported live recently',
+      });
     });
     verifiedIncidentCount += 1;
   }

@@ -13,6 +13,7 @@ export default [
         },
       },
       globals: {
+        AbortController: 'readonly',
         console: 'readonly',
         document: 'readonly',
         fetch: 'readonly',

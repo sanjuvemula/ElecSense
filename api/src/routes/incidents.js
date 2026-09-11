@@ -1,7 +1,11 @@
-import { asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { Router } from 'express';
 
 import { db } from '../db/index.js';
+import {
+  mutationLimiter,
+  requireOperatorToken,
+} from '../middleware/security.js';
 import {
   incidentEvents,
   incidentPoles,
@@ -15,10 +19,14 @@ import {
 import {
   createTransitionPlan,
   INCIDENT_STATUSES,
+  TransitionValidationError,
 } from '../services/incidentLifecycle.js';
 import { generateDispatchNote } from '../services/dispatchNote.js';
 
 const allowedStatuses = new Set(INCIDENT_STATUSES);
+
+export const DEFAULT_INCIDENT_LIMIT = 200;
+export const MAX_INCIDENT_LIMIT = 1000;
 
 const router = Router();
 
@@ -36,7 +44,17 @@ router.get('/', async (req, res, next) => {
       return;
     }
 
-    const incidentRows = await listIncidents(database, statuses);
+    const limit = parseLimit(req.query.limit);
+
+    if (limit === null) {
+      res.status(400).json({
+        error: 'Invalid limit',
+        message: `limit must be an integer between 1 and ${MAX_INCIDENT_LIMIT}`,
+      });
+      return;
+    }
+
+    const incidentRows = await listIncidents(database, statuses, limit);
     const disagreementMap = await buildTelemetryDisagreementMap(
       database,
       incidentRows,
@@ -87,20 +105,20 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-router.post('/:id/acknowledge', async (req, res, next) => {
+router.post('/:id/acknowledge', mutationLimiter, requireOperatorToken(), async (req, res, next) => {
   await handleTransitionRequest(req, res, next, {
     toStatus: 'acknowledged',
   });
 });
 
-router.post('/:id/assign-crew', async (req, res, next) => {
+router.post('/:id/assign-crew', mutationLimiter, requireOperatorToken(), async (req, res, next) => {
   await handleTransitionRequest(req, res, next, {
     toStatus: 'crew_assigned',
     bodyField: 'crewNote',
   });
 });
 
-router.post('/:id/mark-resolved', async (req, res, next) => {
+router.post('/:id/mark-resolved', mutationLimiter, requireOperatorToken(), async (req, res, next) => {
   await handleTransitionRequest(req, res, next, {
     toStatus: 'resolved',
     bodyField: 'note',
@@ -108,13 +126,13 @@ router.post('/:id/mark-resolved', async (req, res, next) => {
   });
 });
 
-router.post('/:id/close', async (req, res, next) => {
+router.post('/:id/close', mutationLimiter, requireOperatorToken(), async (req, res, next) => {
   await handleTransitionRequest(req, res, next, {
     toStatus: 'closed',
   });
 });
 
-router.post('/:id/dispatch-note', async (req, res, next) => {
+router.post('/:id/dispatch-note', mutationLimiter, requireOperatorToken(), async (req, res, next) => {
   try {
     const database = requireDatabase();
     const regenerate = parseRegenerateFlag(req.body);
@@ -139,7 +157,9 @@ router.post('/:id/dispatch-note', async (req, res, next) => {
       dispatchNote: dispatchNote.note,
       source: dispatchNote.source,
       reused: dispatchNote.reused,
-      ...(dispatchNote.error ? { fallbackReason: dispatchNote.error } : {}),
+      ...(dispatchNote.errorCode
+        ? { fallbackReason: dispatchNote.errorCode }
+        : {}),
     });
   } catch (error) {
     next(error);
@@ -171,6 +191,7 @@ async function handleTransitionRequest(req, res, next, config) {
       database,
       incident.id,
       plan,
+      incident.status,
     );
 
     res.json({
@@ -182,21 +203,32 @@ async function handleTransitionRequest(req, res, next, config) {
   }
 }
 
-async function listIncidents(database, statuses) {
-  let query = database
-    .select()
-    .from(incidents)
-    .orderBy(desc(incidents.detectedAt));
+async function listIncidents(database, statuses, limit) {
+  const query = database.select().from(incidents);
 
   if (statuses.length > 0) {
-    query = database
-      .select()
-      .from(incidents)
-      .where(inArray(incidents.status, statuses))
-      .orderBy(desc(incidents.detectedAt));
+    query.where(inArray(incidents.status, statuses));
   }
 
-  return query;
+  return query.orderBy(desc(incidents.detectedAt)).limit(limit);
+}
+
+function parseLimit(value) {
+  if (value === undefined) {
+    return DEFAULT_INCIDENT_LIMIT;
+  }
+
+  const parsed = Number(value);
+
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < 1 ||
+    parsed > MAX_INCIDENT_LIMIT
+  ) {
+    return null;
+  }
+
+  return parsed;
 }
 
 async function fetchIncidentById(database, incidentId) {
@@ -209,12 +241,33 @@ async function fetchIncidentById(database, incidentId) {
   return incident ?? null;
 }
 
-async function applyIncidentTransition(database, incidentId, plan) {
+async function applyIncidentTransition(
+  database,
+  incidentId,
+  plan,
+  expectedStatus,
+) {
   const run = async (transaction) => {
-    await transaction
+    // Compare-and-swap on the status we validated against. Two concurrent
+    // requests both read the same starting status, but only the first update
+    // matches it, so the loser changes no rows and is rejected instead of
+    // applying a second transition and logging a duplicate event.
+    const updated = await transaction
       .update(incidents)
       .set(plan.statusPatch)
-      .where(eq(incidents.id, incidentId));
+      .where(
+        and(
+          eq(incidents.id, incidentId),
+          eq(incidents.status, expectedStatus),
+        ),
+      )
+      .returning({ id: incidents.id });
+
+    if (updated.length === 0) {
+      throw new TransitionValidationError(
+        'Incident status changed while this request was in flight. Reload the incident and try again.',
+      );
+    }
 
     await transaction.insert(incidentEvents).values({
       incidentId,
@@ -237,26 +290,34 @@ async function storeDispatchNote(database, incidentId, dispatchNote) {
     return fetchIncidentById(database, incidentId);
   }
 
-  const [updatedIncident] = await database
-    .update(incidents)
-    .set({
-      dispatchNote: dispatchNote.note,
-      dispatchNoteSource: dispatchNote.source,
-      dispatchNoteFingerprint: dispatchNote.fingerprint,
-    })
-    .where(eq(incidents.id, incidentId))
-    .returning();
+  const run = async (transaction) => {
+    const [updatedIncident] = await transaction
+      .update(incidents)
+      .set({
+        dispatchNote: dispatchNote.note,
+        dispatchNoteSource: dispatchNote.source,
+        dispatchNoteFingerprint: dispatchNote.fingerprint,
+      })
+      .where(eq(incidents.id, incidentId))
+      .returning();
 
-  await database.insert(incidentEvents).values({
-    incidentId,
-    eventType: 'dispatch_note_generated',
-    payload: {
-      source: dispatchNote.source,
-      fallbackReason: dispatchNote.error ?? null,
-    },
-  });
+    await transaction.insert(incidentEvents).values({
+      incidentId,
+      eventType: 'dispatch_note_generated',
+      payload: {
+        source: dispatchNote.source,
+        fallbackReason: dispatchNote.errorCode ?? null,
+      },
+    });
 
-  return updatedIncident;
+    return updatedIncident;
+  };
+
+  if (typeof database.transaction === 'function') {
+    return database.transaction(run);
+  }
+
+  return run(database);
 }
 
 async function buildTelemetryDisagreementMap(database, incidentRows, now) {

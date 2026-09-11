@@ -581,6 +581,45 @@ export async function getSimulatorNetwork(options = {}) {
   };
 }
 
+/**
+ * Returns only the fields that change between polls.
+ *
+ * `getSimulatorNetwork` re-serialises the full grid (~1.9 MB for 3002 poles),
+ * but topology, coordinates and identifiers are fixed between seeds. A client
+ * can fetch the full network once and then poll this, which is a fraction of
+ * the payload and, more importantly, a fraction of the client-side JSON parse
+ * and re-render cost.
+ */
+export async function getSimulatorNetworkStates(options = {}) {
+  const database = requireDatabase(options.db);
+  const [poleRows, silencedRows] = await Promise.all([
+    fetchPoleLiveStates(database),
+    fetchSilencedDevices(database),
+  ]);
+
+  return {
+    // deviceId and the silenced flag are deliberately omitted per pole: the
+    // client already holds the pole to device mapping from /network, and
+    // `silencedDevices` below carries the rest. Repeating a ~22 character
+    // device id on every one of ~2700 poles is most of the avoidable payload.
+    states: poleRows
+      .map((pole) => ({
+        poleId: pole.poleId,
+        lastState: pole.lastState,
+        lastSeenTs: normalizeNullableIso(pole.lastSeenTs),
+        lastSeq: pole.lastSeq,
+        deviceLastSeq: pole.deviceLastSeq,
+        batteryMv: pole.batteryMv,
+        rssi: pole.rssi,
+      }))
+      .sort((left, right) => compareIds(left.poleId, right.poleId)),
+    silencedDevices: silencedRows.map((row) => ({
+      ...row,
+      silencedAt: normalizeNullableIso(row.silencedAt),
+    })),
+  };
+}
+
 export function buildTruthTree(truthPoles) {
   const polesById = new Map();
   const childrenByParent = new Map();
@@ -990,6 +1029,22 @@ async function fetchAllPoleDeviceStates(database) {
       lastSeenTs: poles.lastSeenTs,
       lastSeq: poles.lastSeq,
       fwVersion: devices.fwVersion,
+      batteryMv: devices.batteryMv,
+      rssi: devices.rssi,
+      deviceLastSeq: devices.lastSeq,
+    })
+    .from(poles)
+    .leftJoin(devices, eq(poles.deviceId, devices.deviceId));
+}
+
+async function fetchPoleLiveStates(database) {
+  return database
+    .select({
+      poleId: poles.poleId,
+      deviceId: poles.deviceId,
+      lastState: poles.lastState,
+      lastSeenTs: poles.lastSeenTs,
+      lastSeq: poles.lastSeq,
       batteryMv: devices.batteryMv,
       rssi: devices.rssi,
       deviceLastSeq: devices.lastSeq,

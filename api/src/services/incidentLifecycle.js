@@ -4,6 +4,11 @@ export const VALID_TRANSITIONS = Object.freeze({
   crew_assigned: ['resolved', 'verified'],
   resolved: ['verified'],
   verified: ['closed'],
+  // Terminal. `superseded` means telemetry disproved an incident's scope and
+  // narrower incidents replaced it. It is deliberately not `verified`: nothing
+  // about the fault was confirmed fixed, so it must not count toward
+  // verification or restoration metrics.
+  superseded: [],
   closed: [],
 });
 
@@ -14,6 +19,7 @@ const STATUS_TIMESTAMP_FIELDS = Object.freeze({
   crew_assigned: 'crewAssignedAt',
   resolved: 'resolvedAt',
   verified: 'verifiedAt',
+  superseded: 'supersededAt',
   closed: 'closedAt',
 });
 

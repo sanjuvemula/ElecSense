@@ -67,6 +67,10 @@ export const poles = pgTable(
       .default('unknown'),
     lastSeenTs: timestampTz('last_seen_ts'),
     lastSeq: integer('last_seq').default(0),
+    // Which device wrote `last_seq`. Sequence numbers are per-device counters,
+    // so comparing them across a sensor replacement is meaningless; recording
+    // the writer lets ingestion tell "older packet" from "different stream".
+    lastSeqDeviceId: text('last_seq_device_id'),
   },
   (table) => [
     index('poles_feeder_id_idx').on(table.feederId),
@@ -224,6 +228,7 @@ export const incidents = pgTable(
         'crew_assigned',
         'resolved',
         'verified',
+        'superseded',
         'closed',
       ],
     })
@@ -234,6 +239,7 @@ export const incidents = pgTable(
     crewAssignedAt: timestampTz('crew_assigned_at'),
     resolvedAt: timestampTz('resolved_at'),
     verifiedAt: timestampTz('verified_at'),
+    supersededAt: timestampTz('superseded_at'),
     closedAt: timestampTz('closed_at'),
   },
   (table) => [
@@ -262,7 +268,7 @@ export const incidents = pgTable(
     ),
     check(
       'incidents_status_check',
-      sql`${table.status} in ('detected', 'acknowledged', 'crew_assigned', 'resolved', 'verified', 'closed')`,
+      sql`${table.status} in ('detected', 'acknowledged', 'crew_assigned', 'resolved', 'verified', 'superseded', 'closed')`,
     ),
   ],
 );

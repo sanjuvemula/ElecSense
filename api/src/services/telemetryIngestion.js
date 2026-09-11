@@ -145,7 +145,10 @@ function buildTelemetryDecisions(events, initialDeviceStates) {
       deviceStates.set(event.deviceId, { lastSeq: event.seq });
     }
 
-    return decision;
+    // The source event carries the device timestamp, which is what orders two
+    // updates for the same device or pole inside one batch. Array position is
+    // not a safe proxy: a client may post events in any order.
+    return { ...decision, event };
   });
 }
 
@@ -198,16 +201,26 @@ function collapseDeviceUpdates(decisions, knownPoleIds) {
   for (const decision of decisions) {
     const update = decision.deviceUpdate;
     const previous = updates.get(update.deviceId);
+    const winner = isNewerDecision(decision, previous?.decision)
+      ? update
+      : previous.update;
 
     updates.set(update.deviceId, {
-      ...update,
-      poleId: knownPoleIds.has(update.poleId) ? update.poleId : null,
-      lastBootAt: update.lastBootAt ?? previous?.lastBootAt ?? null,
-      isBoot: update.isBoot || previous?.isBoot === true,
+      decision: isNewerDecision(decision, previous?.decision)
+        ? decision
+        : previous.decision,
+      update: {
+        ...winner,
+        poleId: knownPoleIds.has(winner.poleId) ? winner.poleId : null,
+        // Boot facts are sticky across the batch: whichever event wins the
+        // ordering, a boot seen anywhere in this batch must still be recorded.
+        lastBootAt: update.lastBootAt ?? previous?.update.lastBootAt ?? null,
+        isBoot: update.isBoot || previous?.update.isBoot === true,
+      },
     });
   }
 
-  return Array.from(updates.values());
+  return Array.from(updates.values(), (entry) => entry.update);
 }
 
 function collapsePoleUpdates(decisions) {
@@ -216,14 +229,44 @@ function collapsePoleUpdates(decisions) {
   for (const decision of decisions) {
     const update = decision.poleUpdate;
     const previous = updates.get(update.poleId);
+    const winner = isNewerDecision(decision, previous?.decision)
+      ? update
+      : previous.update;
 
     updates.set(update.poleId, {
-      ...update,
-      isBoot: update.isBoot || previous?.isBoot === true,
+      decision: isNewerDecision(decision, previous?.decision)
+        ? decision
+        : previous.decision,
+      update: {
+        ...winner,
+        isBoot: update.isBoot || previous?.update.isBoot === true,
+      },
     });
   }
 
-  return Array.from(updates.values());
+  return Array.from(updates.values(), (entry) => entry.update);
+}
+
+/**
+ * Orders two decisions for the same device or pole within one batch.
+ *
+ * Device timestamp is the physical truth and is compared first. `seq` only
+ * breaks ties between events stamped in the same millisecond, and is not
+ * comparable across a boot (which resets the counter) or across devices.
+ */
+function isNewerDecision(candidate, incumbent) {
+  if (!incumbent) {
+    return true;
+  }
+
+  const candidateTime = normalizeDate(candidate.event.deviceTs).getTime();
+  const incumbentTime = normalizeDate(incumbent.event.deviceTs).getTime();
+
+  if (candidateTime !== incumbentTime) {
+    return candidateTime > incumbentTime;
+  }
+
+  return candidate.event.seq > incumbent.event.seq;
 }
 
 async function upsertDeviceUpdates(db, updates) {
@@ -251,7 +294,7 @@ async function updatePoleStates(db, updates) {
     const values = sql.join(
       chunk.map(
         (update) =>
-          sql`(${update.poleId}::text, ${update.lastState}::text, ${toTimestampTzParam(update.lastSeenTs)}::timestamptz, ${update.lastSeq}::integer, ${update.isBoot}::boolean)`,
+          sql`(${update.poleId}::text, ${update.deviceId}::text, ${update.lastState}::text, ${toTimestampTzParam(update.lastSeenTs)}::timestamptz, ${update.lastSeq}::integer, ${update.isBoot}::boolean)`,
       ),
       sql`, `,
     );
@@ -261,11 +304,13 @@ async function updatePoleStates(db, updates) {
       set
         last_state = incoming.last_state,
         last_seen_ts = incoming.last_seen_ts,
-        last_seq = incoming.last_seq
+        last_seq = incoming.last_seq,
+        last_seq_device_id = incoming.device_id
       from (
         values ${values}
       ) as incoming(
         pole_id,
+        device_id,
         last_state,
         last_seen_ts,
         last_seq,
@@ -273,7 +318,25 @@ async function updatePoleStates(db, updates) {
       )
       where
         ${poles.poleId} = incoming.pole_id
-        and (${poles.lastSeq} < incoming.last_seq or incoming.is_boot = true)
+        and (
+          incoming.is_boot = true
+          -- Same device stream: the sequence counter is authoritative.
+          or (
+            ${poles.lastSeqDeviceId} is not distinct from incoming.device_id
+            and ${poles.lastSeq} < incoming.last_seq
+          )
+          -- Different device wrote the stored seq (sensor replaced, or this
+          -- pole's first ever packet). The two counters are unrelated, so fall
+          -- back to recency rather than letting a stale counter block the new
+          -- stream indefinitely.
+          or (
+            ${poles.lastSeqDeviceId} is distinct from incoming.device_id
+            and (
+              ${poles.lastSeenTs} is null
+              or ${poles.lastSeenTs} <= incoming.last_seen_ts
+            )
+          )
+        )
     `);
   }
 }

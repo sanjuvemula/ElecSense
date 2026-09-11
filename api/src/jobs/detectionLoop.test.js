@@ -5,10 +5,12 @@ import {
   buildActiveOutageSet,
   DARK_DEBOUNCE_MS,
   findMatchingOpenIncident,
+  markOpenFeederIncidentsDowngraded,
   runDetectionOnce,
   selectConfirmedDarkPoles,
   summarizeCurrentDarkRun,
 } from './detectionLoop.js';
+import { VALID_TRANSITIONS } from '../services/incidentLifecycle.js';
 
 test('active outage set applies grace before and after planned window', () => {
   const now = new Date('2026-08-04T10:00:00.000Z');
@@ -445,3 +447,52 @@ function makeIncident({ type, dtId, feederId, affectedPoleIds }) {
     topologySource: 'surveyed',
   };
 }
+
+test('scope downgrade marks the feeder incident superseded, not verified', async () => {
+  const now = new Date('2026-08-04T10:00:00.000Z');
+  const updates = [];
+  const events = [];
+  const database = {
+    select: () => ({
+      from: () => ({
+        where: async () => [
+          { id: 'INC-1', feederId: 'F-01', status: 'crew_assigned' },
+        ],
+      }),
+    }),
+    update: () => ({
+      set: (patch) => ({
+        where: async () => {
+          updates.push(patch);
+        },
+      }),
+    }),
+    insert: () => ({
+      values: async (row) => {
+        events.push(row);
+      },
+    }),
+  };
+
+  const result = await markOpenFeederIncidentsDowngraded(
+    database,
+    ['F-01'],
+    now,
+  );
+
+  assert.equal(result.downgradedFeederIncidentCount, 1);
+  assert.deepEqual(updates, [{ status: 'superseded', supersededAt: now }]);
+  assert.equal(
+    updates[0].verifiedAt,
+    undefined,
+    'a scope downgrade must not stamp verifiedAt',
+  );
+  assert.equal(events.length, 1);
+  assert.equal(events[0].eventType, 'scope_downgraded');
+  assert.equal(events[0].payload.fromStatus, 'crew_assigned');
+  assert.equal(events[0].payload.toStatus, 'superseded');
+});
+
+test('superseded is terminal and cannot be transitioned onward', () => {
+  assert.deepEqual(VALID_TRANSITIONS.superseded, []);
+});

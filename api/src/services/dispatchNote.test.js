@@ -4,9 +4,14 @@ import test from 'node:test';
 import {
   buildDispatchNoteFingerprint,
   buildTemplateDispatchNote,
+  DISPATCH_NOTE_ERROR_CODES,
   DISPATCH_NOTE_SOURCES,
   generateDispatchNote,
 } from './dispatchNote.js';
+
+function silentLogger() {
+  return { warn() {} };
+}
 
 test('reuses a stored dispatch note when the incident fingerprint matches', async () => {
   const incident = sampleIncident({
@@ -60,7 +65,12 @@ test('falls back to a deterministic template when the LLM fails', async () => {
   assert.equal(result.source, DISPATCH_NOTE_SOURCES.TEMPLATE_FALLBACK);
   assert.match(result.note, /SPAN FAULT near P-024431\/P-024432/);
   assert.match(result.note, /location is an estimate/i);
-  assert.equal(result.error, 'network down');
+  assert.equal(result.errorCode, DISPATCH_NOTE_ERROR_CODES.UNAVAILABLE);
+  assert.equal(
+    result.error,
+    undefined,
+    'raw provider messages must not reach callers',
+  );
 });
 
 test('falls back to a deterministic template when Gemini times out', async () => {
@@ -68,11 +78,12 @@ test('falls back to a deterministic template when Gemini times out', async () =>
     apiKey: 'test-key',
     timeoutMs: 1,
     generateContent: () => new Promise(() => {}),
+    logger: silentLogger(),
   });
 
   assert.equal(result.source, DISPATCH_NOTE_SOURCES.TEMPLATE_FALLBACK);
   assert.match(result.note, /SPAN FAULT near P-024431\/P-024432/);
-  assert.equal(result.error, 'Gemini request timed out.');
+  assert.equal(result.errorCode, DISPATCH_NOTE_ERROR_CODES.TIMEOUT);
 });
 
 test('template note calls out inferred or low confidence locations', () => {

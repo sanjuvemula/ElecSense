@@ -55,6 +55,9 @@ const API_HEADERS = {
   'Content-Type': 'application/json',
 };
 
+const NETWORK_TOPOLOGY_POLL_MS = 120_000;
+const NETWORK_STATE_POLL_MS = 5000;
+
 export default function App() {
   const [theme, setTheme] = useState('dark');
   const [selectedIncidentId, setSelectedIncidentId] = useState(null);
@@ -76,17 +79,26 @@ export default function App() {
   const lastDispatchAutoKeyRef = useRef(null);
 
   const incidentsPoll = usePolling(
-    async () => {
-      const payload = await fetchJson('/api/incidents');
+    async ({ signal } = {}) => {
+      const payload = await fetchJson('/api/incidents', { signal });
 
       return payload.incidents ?? [];
     },
     4000,
     [],
   );
+  // Topology, coordinates and identifiers only change when the grid is
+  // reseeded, so the full ~1.9 MB network is fetched rarely. The mutable
+  // per-pole state is a much smaller payload and carries the live polling.
   const networkPoll = usePolling(
-    () => fetchJson('/api/simulator/network'),
-    5000,
+    ({ signal } = {}) => fetchJson('/api/simulator/network', { signal }),
+    NETWORK_TOPOLOGY_POLL_MS,
+    [],
+  );
+  const networkStatesPoll = usePolling(
+    ({ signal } = {}) =>
+      fetchJson('/api/simulator/network/states', { signal }),
+    NETWORK_STATE_POLL_MS,
     [],
   );
 
@@ -94,7 +106,10 @@ export default function App() {
     () => sortIncidents(incidentsPoll.data ?? []),
     [incidentsPoll.data],
   );
-  const network = networkPoll.data;
+  const network = useMemo(
+    () => mergeNetworkStates(networkPoll.data, networkStatesPoll.data),
+    [networkPoll.data, networkStatesPoll.data],
+  );
   const activeIncidents = useMemo(
     () => incidents.filter((incident) => incident.status !== 'closed'),
     [incidents],
@@ -266,7 +281,11 @@ export default function App() {
   ]);
 
   async function refreshConsole() {
-    await Promise.all([incidentsPoll.refetch(), networkPoll.refetch()]);
+    await Promise.all([
+      incidentsPoll.refetch(),
+      networkPoll.refetch(),
+      networkStatesPoll.refetch(),
+    ]);
 
     if (selectedIncidentId) {
       const payload = await fetchJson(`/api/incidents/${selectedIncidentId}`);
@@ -1814,19 +1833,60 @@ function formatDispatchSource(source) {
 const API_BASE =
   import.meta.env.VITE_API_URL || "http://localhost:3000";
 async function fetchJson(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: options.method ?? 'GET',
-    headers: API_HEADERS,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  });
+  let response;
+
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method: options.method ?? 'GET',
+      headers: API_HEADERS,
+      body:
+        options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: options.signal,
+    });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw error;
+    }
+
+    // fetch only rejects for transport-level failures: the API is down, DNS
+    // fails, or the browser blocked the response (most often CORS).
+    throw new Error(
+      `Cannot reach the API at ${API_BASE}. It may be starting up, offline, or rejecting this origin.`,
+    );
+  }
+
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : {};
+  const payload = parseJsonOrNull(text);
 
   if (!response.ok) {
-    throw new Error(payload.message ?? payload.error ?? response.statusText);
+    // A proxy or crashed server answers with HTML, not JSON. Reporting the
+    // status beats surfacing a raw JSON parse error from the response body.
+    throw new Error(
+      payload?.message ??
+        payload?.error ??
+        `API request to ${path} failed with ${response.status} ${response.statusText}.`,
+    );
+  }
+
+  if (payload === null) {
+    throw new Error(
+      `API returned a non-JSON response for ${path} (status ${response.status}).`,
+    );
   }
 
   return payload;
+}
+
+function parseJsonOrNull(text) {
+  if (!text) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 function sortIncidents(incidents) {
@@ -2100,6 +2160,60 @@ function getActiveHashSection() {
   const hash = window.location.hash.replace('#', '');
 
   return CONSOLE_SECTIONS.includes(hash) ? hash : 'dashboard';
+}
+
+/**
+ * Overlays the small live-state payload onto the cached full network.
+ *
+ * Returns the base network untouched until states arrive, so the first render
+ * after a topology fetch still shows something. `simulatorSilenced` is derived
+ * here from `silencedDevices` rather than being repeated on every pole by the
+ * API.
+ */
+function mergeNetworkStates(network, statesPayload) {
+  if (!network) {
+    return null;
+  }
+
+  if (!statesPayload) {
+    return network;
+  }
+
+  const stateByPoleId = new Map(
+    (statesPayload.states ?? []).map((state) => [state.poleId, state]),
+  );
+  const silencedDevices = statesPayload.silencedDevices ?? [];
+  const silencedDeviceIds = new Set(
+    silencedDevices.map((row) => row.deviceId),
+  );
+
+  return {
+    ...network,
+    silencedDevices,
+    poles: network.poles.map((pole) => {
+      const state = stateByPoleId.get(pole.poleId);
+
+      if (!state || !pole.current) {
+        return pole;
+      }
+
+      return {
+        ...pole,
+        current: {
+          ...pole.current,
+          lastState: state.lastState,
+          lastSeenTs: state.lastSeenTs,
+          lastSeq: state.lastSeq,
+          deviceLastSeq: state.deviceLastSeq,
+          batteryMv: state.batteryMv,
+          rssi: state.rssi,
+          simulatorSilenced: pole.current.deviceId
+            ? silencedDeviceIds.has(pole.current.deviceId)
+            : false,
+        },
+      };
+    }),
+  };
 }
 
 function buildNetworkStats(network) {

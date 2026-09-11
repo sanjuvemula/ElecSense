@@ -40,14 +40,48 @@ export async function generateDispatchNote(incident, options = {}) {
       reused: false,
     };
   } catch (error) {
+    // The provider's own message can embed request URLs, prompt fragments and
+    // other request context, so it is logged but never returned to the client.
+    // Callers surface `errorCode`, which is a fixed vocabulary.
+    const logger = options.logger ?? console;
+    logger.warn?.('Dispatch note generation fell back to template.', {
+      incidentId: incident.id,
+      reason: error.message,
+    });
+
     return {
       note: buildTemplateDispatchNote(incident),
       source: DISPATCH_NOTE_SOURCES.TEMPLATE_FALLBACK,
       fingerprint,
       reused: false,
-      error: error.message,
+      errorCode: classifyDispatchNoteError(error),
     };
   }
+}
+
+export const DISPATCH_NOTE_ERROR_CODES = Object.freeze({
+  NOT_CONFIGURED: 'llm_not_configured',
+  TIMEOUT: 'llm_timeout',
+  EMPTY_RESPONSE: 'llm_empty_response',
+  UNAVAILABLE: 'llm_unavailable',
+});
+
+export function classifyDispatchNoteError(error) {
+  const message = error?.message ?? '';
+
+  if (message.includes('GEMINI_API_KEY is not configured')) {
+    return DISPATCH_NOTE_ERROR_CODES.NOT_CONFIGURED;
+  }
+
+  if (message.includes('timed out')) {
+    return DISPATCH_NOTE_ERROR_CODES.TIMEOUT;
+  }
+
+  if (message.includes('did not include text content')) {
+    return DISPATCH_NOTE_ERROR_CODES.EMPTY_RESPONSE;
+  }
+
+  return DISPATCH_NOTE_ERROR_CODES.UNAVAILABLE;
 }
 
 export function buildDispatchNoteFingerprint(incident) {

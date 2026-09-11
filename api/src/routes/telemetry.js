@@ -2,6 +2,10 @@ import { Router } from 'express';
 
 import { db } from '../db/index.js';
 import {
+  requireOperatorToken,
+  telemetryLimiter,
+} from '../middleware/security.js';
+import {
   getTelemetryStats,
   ingestTelemetryEvents,
   parseTelemetryPayload,
@@ -20,7 +24,7 @@ router.get('/stats', async (_req, res, next) => {
   }
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/', telemetryLimiter, requireOperatorToken(), async (req, res, next) => {
   const parsed = parseTelemetryPayload(req.body);
 
   if (!parsed.ok) {
