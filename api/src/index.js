@@ -11,11 +11,31 @@ import telemetryRoutes from './routes/telemetry.js';
 import cors from 'cors';
 const app = express();
 
+const allowedOrigins = (process.env.CORS_ORIGINS ?? '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+
+const allowedOriginPatterns = [
+  /^https:\/\/elec-sense-web(-[a-z0-9-]+)?\.vercel\.app$/,
+  /^http:\/\/localhost:\d+$/,
+];
+
 app.use(
   cors({
-    origin: [
-      'https://elec-sense-web.vercel.app',
-    ],
+    origin(origin, callback) {
+      // Same-origin and non-browser clients (curl, health checks) send no Origin.
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      const allowed =
+        allowedOrigins.includes(origin) ||
+        allowedOriginPatterns.some((pattern) => pattern.test(origin));
+
+      callback(allowed ? null : new Error(`Origin not allowed: ${origin}`), allowed);
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
   })
