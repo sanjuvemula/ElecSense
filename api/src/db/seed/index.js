@@ -26,7 +26,11 @@ const fallbackSeed = process.env.NETWORK_SEED ?? process.env.SEED ?? 240731;
 const groundTruthPath =
   process.env.GROUND_TRUTH_PATH ?? path.join(__dirname, 'groundTruth.json');
 
-const client = postgres(databaseUrl, { max: 1 });
+const isLocalDb = /@(localhost|127\.0\.0\.1)[:/]/.test(databaseUrl);
+const client = postgres(databaseUrl, {
+  max: 1,
+  ssl: isLocalDb ? false : 'require',
+});
 const db = drizzle(client, { schema });
 
 try {

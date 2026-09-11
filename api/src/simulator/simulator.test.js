@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { access } from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { and, count, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { config } from 'dotenv';
 import postgres from 'postgres';
 
 import * as schema from '../db/schema.js';
@@ -19,6 +22,25 @@ import {
   injectScheduledOutage,
   injectSpanFault,
 } from './simulator.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const apiRoot = path.resolve(__dirname, '../..');
+const rootDir = path.resolve(apiRoot, '..');
+
+config({ path: path.join(rootDir, '.env') });
+config({ path: path.join(apiRoot, '.env'), override: true });
+
+const defaultGroundTruthPath = path.join(
+  apiRoot,
+  'src/db/seed/groundTruth.json',
+);
+
+const connectDatabase = (databaseUrl) =>
+  postgres(databaseUrl, {
+    max: 1,
+    ssl: /@(localhost|127\.0\.0\.1)[:/]/.test(databaseUrl) ? false : 'require',
+  });
 
 const now = new Date('2026-08-04T10:00:00.000Z');
 
@@ -153,10 +175,11 @@ test('missing database seed metadata fails loudly before simulator injection', (
 
 test('span fault injection succeeds against a seeded database DT', async (t) => {
   const databaseUrl = process.env.DATABASE_URL;
-  const groundTruthPath = process.env.GROUND_TRUTH_PATH;
+  const groundTruthPath =
+    process.env.GROUND_TRUTH_PATH ?? defaultGroundTruthPath;
 
-  if (!databaseUrl || !groundTruthPath) {
-    t.skip('requires DATABASE_URL and GROUND_TRUTH_PATH');
+  if (!databaseUrl) {
+    t.skip('requires DATABASE_URL');
     return;
   }
 
@@ -167,7 +190,7 @@ test('span fault injection succeeds against a seeded database DT', async (t) => 
     return;
   }
 
-  const client = postgres(databaseUrl, { max: 1 });
+  const client = connectDatabase(databaseUrl);
   const database = drizzle(client, { schema });
 
   try {
@@ -295,15 +318,11 @@ test('out-of-order telemetry keeps the higher sequence authoritative', async (t)
 
 async function openDatabaseHarness(t, { requireGroundTruth = false } = {}) {
   const databaseUrl = process.env.DATABASE_URL;
-  const groundTruthPath = process.env.GROUND_TRUTH_PATH;
+  const groundTruthPath =
+    process.env.GROUND_TRUTH_PATH ?? defaultGroundTruthPath;
 
   if (!databaseUrl) {
     t.skip('requires DATABASE_URL');
-    return null;
-  }
-
-  if (requireGroundTruth && !groundTruthPath) {
-    t.skip('requires GROUND_TRUTH_PATH');
     return null;
   }
 
@@ -316,7 +335,7 @@ async function openDatabaseHarness(t, { requireGroundTruth = false } = {}) {
     }
   }
 
-  const client = postgres(databaseUrl, { max: 1 });
+  const client = connectDatabase(databaseUrl);
 
   try {
     await client`select 1`;
